@@ -30,18 +30,28 @@ def generate_sales_order_analysis(from_date=None, to_date=None):
         report = frappe.get_doc("Report", report_name)
         columns, data = report.get_data(filters=filters, as_dict=True)
 
+        # Sanitize date values
         safe_columns = convert_dates(columns)
         safe_data = convert_dates(data)
 
-        # Convert column dicts to list of labels (header row)
+        # Prepare rows for Excel: header + data
         header = [col.get("label") for col in safe_columns]
         rows = [header] + [[row.get(col.get("fieldname")) for col in safe_columns] for row in safe_data]
 
+        # Create Excel file
         xlsx_file = make_xlsx(rows, report_name)
 
-        # Save the file to public/files
-        file_name = f"{report_name.replace(' ', '_')}_{from_date}_to_{to_date}.xlsx"
-        saved_file = save_file(file_name, xlsx_file.getvalue(), "Report", None, is_private=0)
+        # Save the file
+        file_name = "Sales_Order_Analysis.xlsx"
+        file_content = xlsx_file.getvalue()
+
+        saved_file = save_file(
+            file_name,
+            file_content,
+            attached_to_doctype="Home",
+            attached_to_name="Raven Report",
+            is_private=0
+        )
 
         return {
             "file_url": saved_file.file_url,

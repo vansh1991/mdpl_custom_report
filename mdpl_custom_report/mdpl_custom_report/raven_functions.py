@@ -48,8 +48,8 @@ def generate_sales_order_analysis(from_date=None, to_date=None):
         saved_file = save_file(
             file_name,
             file_content,
-            attached_to_doctype="Home",
-            attached_to_name="Raven Report",
+            "Home",
+            "Raven Report",
             is_private=0
         )
 

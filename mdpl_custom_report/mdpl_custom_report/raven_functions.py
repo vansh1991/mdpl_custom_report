@@ -41,7 +41,7 @@ def generate_sales_order_analysis(from_date=None, to_date=None):
 
         # Save the file to public/files
         file_name = f"{report_name.replace(' ', '_')}_{from_date}_to_{to_date}.xlsx"
-        saved_file = save_file(file_name, io.BytesIO(xlsx_file.getvalue()), "Report", None, is_private=0)
+        saved_file = save_file(file_name, xlsx_file.getvalue(), "Report", None, is_private=0)
 
         return {
             "file_url": saved_file.file_url,

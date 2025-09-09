@@ -4,6 +4,17 @@ app_publisher = "TechDude"
 app_description = "MDPL Custom Report"
 app_email = "techdudesoftwarelab@gmail.com"
 app_license = "mit"
+raven_function = [
+    {
+        "name": "Generate Sales Order Analysis",
+        "method": "mdpl_custom_report.mdpl_custom_report.raven_functions.generate_sales_order_analysis",
+        "args": {
+            "from_date": {"type": "string", "description": "Start Date (YYYY-MM-DD)"},
+            "to_date": {"type": "string", "description": "End Date (YYYY-MM-DD)"}
+        },
+        "description": "Generates the Sales Order Analysis report for given date range"
+    }
+]
 
 # Apps
 # ------------------

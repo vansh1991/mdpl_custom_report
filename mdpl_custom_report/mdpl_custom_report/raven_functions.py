@@ -1,7 +1,10 @@
 import frappe
 from frappe.utils import nowdate
-import json
+from frappe.utils.xlsxutils import make_xlsx
+from frappe.utils.file_manager import save_file
 from datetime import date
+import json
+import io
 
 def convert_dates(obj):
     if isinstance(obj, dict):
@@ -27,19 +30,22 @@ def generate_sales_order_analysis(from_date=None, to_date=None):
         report = frappe.get_doc("Report", report_name)
         columns, data = report.get_data(filters=filters, as_dict=True)
 
-        # Convert dates to strings before logging
         safe_columns = convert_dates(columns)
         safe_data = convert_dates(data)
 
-        frappe.log_error(json.dumps({
-            "columns": safe_columns,
-            "data": safe_data
-        }), "Sales Order Report Debug")
+        # Convert column dicts to list of labels (header row)
+        header = [col.get("label") for col in safe_columns]
+        rows = [header] + [[row.get(col.get("fieldname")) for col in safe_columns] for row in safe_data]
+
+        xlsx_file = make_xlsx(rows, report_name)
+
+        # Save the file to public/files
+        file_name = f"{report_name.replace(' ', '_')}_{from_date}_to_{to_date}.xlsx"
+        saved_file = save_file(file_name, io.BytesIO(xlsx_file.getvalue()), "Report", None, is_private=0)
 
         return {
-            "message": f"Generate Sales Order Analysis report from {from_date} to {to_date}",
-            "columns": safe_columns,
-            "data": safe_data
+            "file_url": saved_file.file_url,
+            "message": f"Excel report generated successfully from {from_date} to {to_date}"
         }
 
     except Exception as e:

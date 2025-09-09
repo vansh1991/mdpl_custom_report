@@ -48,8 +48,8 @@ def generate_sales_order_analysis(from_date=None, to_date=None):
         saved_file = save_file(
             file_name,
             file_content,
-            "Home",
-            "Raven Report",
+            "User",
+            frappe.session.user,
             is_private=0
         )
 

@@ -219,36 +219,45 @@ class PartyLedgerSummaryReport:
 
 
     def get_party_conditions(self, doctype):
-    	from pypika import Table, Query
+        conditions = []
+        group_field = "customer_group" if self.filters.party_type == "Customer" else "supplier_group"
+        if self.filters.party:
+            conditions.append(doctype.name == self.filters.party)
+        if self.filters.territory:
+            conditions.append(doctype.territory.isin(self.filters.territory))
+        if self.filters.get(group_field):
+            conditions.append(doctype[group_field].isin(self.filters.get(group_field)))
+        if self.filters.payment_terms_template:
+            conditions.append(doctype.payment_terms == self.filters.payment_terms_template)
+        if self.filters.sales_partner:
+            conditions.append(doctype.default_sales_partner.isin(self.filters.sales_partner))
+                  
+        sales_person = self.filters.get("sales_person")
 
-    	conditions = []
+        if sales_person:
+        # If it’s a list, pick the first one
+            if isinstance(sales_person, list):
+                sales_person = sales_person[0] if sales_person else None
 
-    	sales_person = self.filters.get("sales_person")
+            if sales_person:  # only if still valid
+                customer_mapping = Table("tabCustomer Mapping")
+                sales_rep_info = Table("tabSales Rep Info")
 
-    	# If sales_person is a list (multi-select), grab the first value
-    	if isinstance(sales_person, list):
-        	if sales_person:
-            		sales_person = sales_person[0]
-        	else:
-            		sales_person = None
+                customers_subquery = (
+                    Query.from_(customer_mapping)
+                    .join(sales_rep_info)
+                    .on(customer_mapping.parent == sales_rep_info.name)
+                    .select(customer_mapping.customer)
+                    .where(sales_rep_info.name == sales_person)
+                )
+                conditions.append(doctype.name.isin(customers_subquery))
+        if self.filters.party_type == "Customer":
+            if self.filters.apple_id:  # Checked: Show customers with Apple ID
+                conditions.append(IfNull(doctype.apple_id, "") != "")
+            else:  # Unchecked: Show customers without Apple ID
+                conditions.append(IfNull(doctype.apple_id, "") == "")
+        return conditions
 
-    	if sales_person:
-        	customer_mapping = Table("tabCustomer Mapping")
-        	sales_rep_info = Table("tabSales Rep Info")
-
-        	# Subquery: get customers linked to selected sales_person
-        	customers_subquery = (
-            	Query.from_(customer_mapping)
-            	.join(sales_rep_info)
-            	.on(customer_mapping.parent == sales_rep_info.Name)
-            	.select(customer_mapping.customer)
-            	.where(sales_rep_info.name == sales_person)
-        	)
-
-        	# Apply subquery as condition on Customer field
-        	conditions.append(doctype.name.isin(customers_subquery))
-
-    	return conditions
 
     def get_columns(self):
         columns = [

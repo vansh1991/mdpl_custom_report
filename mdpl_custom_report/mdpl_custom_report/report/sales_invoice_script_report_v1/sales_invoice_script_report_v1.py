@@ -29,9 +29,11 @@ def execute(filters=None):
         if 'AirPods' in filters['parent_item_group']:
             selected_item_groups += ['Airpod 2', 'Airpod 3', 'Airpod Pro', 'Airpod Pro2','AirPod 4']
         if 'iPhone' in filters['parent_item_group']:
-            selected_item_groups += ['11', '12', '13', '14', '14 Plus', '14 Pro', '14 Pro Max', '15', '15 Plus', '15 Pro', '15 Pro Max','16' , '16 Plus' , '16 Pro' , '16 Pro Max']
+            selected_item_groups += ['11', '12', '13', '14', '14 Plus', '14 Pro', '14 Pro Max', 
+                                     '15', '15 Plus', '15 Pro', '15 Pro Max','16' , '16 Plus' , '16 Pro' , '16 Pro Max']
         if 'iPad' in filters['parent_item_group']:
-            selected_item_groups += ['iPad Air 6th gen', 'iPad Pro 5th gen', 'Ipad 9th gen', 'iPad 10th gen', 'Ipad Air 5th gen', 'Ipad pro 4th gen', 'iPad Pro 3rd Gen']
+            selected_item_groups += ['iPad Air 6th gen', 'iPad Pro 5th gen', 'Ipad 9th gen', 'iPad 10th gen', 
+                                     'Ipad Air 5th gen', 'Ipad pro 4th gen', 'iPad Pro 3rd Gen']
         if 'Accessories' in filters['parent_item_group']:
             selected_item_groups += ['(Accessories)']
         if 'Apple Watch' in filters['parent_item_group']:
@@ -53,7 +55,7 @@ def execute(filters=None):
     # Sanitize dynamic column names (replace spaces with underscores)
     sanitized_groups = [group.replace(' ', '_').lower() for group in selected_item_groups]
 
-    # Create the dynamic SELECT clause based on selected item groups
+    # Create the dynamic SELECT clause
     group_select_clause = ", ".join(
         f"SUM(CASE WHEN ig.item_group_name = '{group}' THEN si_item.qty ELSE 0 END) AS `{sanitized_group}`"
         for group, sanitized_group in zip(selected_item_groups, sanitized_groups)
@@ -80,26 +82,29 @@ def execute(filters=None):
         "AND si.posting_date BETWEEN %s AND %s"
     )
 
-    # Add itm_group filter
+    # itm_group filter
     if filters.get('itm_group'):
         group_placeholders = ', '.join(['%s'] * len(filters['itm_group']))
         where_clause += f" AND ig.item_group_name IN ({group_placeholders})"
 
-    # Add parent_item_group filter (only if itm_group is not used)
+    # parent_item_group filter
     if filters.get('parent_item_group') and not filters.get('itm_group'):
         parent_group_placeholders = ', '.join(['%s'] * len(filters['parent_item_group']))
         where_clause += f" AND ig.parent_item_group IN ({parent_group_placeholders})"
 
-    # Add customer filter
+    # customer filter
     if filters.get('customer'):
         customer_placeholders = ', '.join(['%s'] * len(filters['customer']))
         where_clause += f" AND si.customer IN ({customer_placeholders})"
 
-    # Add apple_id filter, ensuring it is not empty if the filter is checked
-    if filters.get('apple_id'):
-        where_clause += " AND c.apple_id IS NOT NULL AND c.apple_id != ''"
+    # Apple ID filter
+    if "apple_id" in filters:
+        if filters["apple_id"] == 1:   # checked
+            where_clause += " AND c.apple_id IS NOT NULL AND c.apple_id != ''"
+        elif filters["apple_id"] == 0: # unchecked
+            where_clause += " AND (c.apple_id IS NULL OR c.apple_id = '')"
 
-    # Append sales_rep filter if exists
+    # Append sales_rep filter
     if filters.get('sales_rep'):
         where_clause += sales_rep_filter
 
@@ -122,74 +127,65 @@ def execute(filters=None):
         si.customer;
     """
 
-    # Add filter parameters for the query
+    # Build params
     params = [filters.get('from_date'), filters.get('to_date')]
-
-    # Extend parameters with itm_group, parent_item_group, customer filters
     if filters.get('itm_group'):
         params.extend(filters['itm_group'])
     if filters.get('parent_item_group') and not filters.get('itm_group'):
         params.extend(filters['parent_item_group'])
     if filters.get('customer'):
         params.extend(filters['customer'])
-    
-    # Extend parameters with sales_rep filter params
     if filters.get('sales_rep'):
         params.extend(sales_rep_params)
 
-    # Log query and parameters for debugging
-    # frappe.msgprint(f"Final query: {query}")
-    # frappe.msgprint(f"Params: {params}")
-
     try:
         data = frappe.db.sql(query, params, as_dict=True)
-        
     except Exception as e:
-        frappe.logger().error(f"Error executing query: {e}")
-        raise
+        frappe.throw(f"Error executing query: {e}")
 
-    # Handling empty results and adding customers without sales in given filters
+    # ---- Handle missing customers (zero sales) ----
     def add_missing_customers(data):
-        all_customer_query = "SELECT name AS customer FROM `tabCustomer`"
-        if filters.get('apple_id'):
-            all_customer_query += " WHERE apple_id > 1"
-        all_customers = frappe.db.sql(all_customer_query, as_dict=True)
+        all_customer_query = "SELECT name AS customer FROM `tabCustomer` WHERE disabled = 0"
+        params = []
+
+        # Apply Apple ID filter
+        if "apple_id" in filters:
+            if filters["apple_id"] == 1:
+                all_customer_query += " AND apple_id IS NOT NULL AND apple_id != ''"
+            elif filters["apple_id"] == 0:
+                all_customer_query += " AND (apple_id IS NULL OR apple_id = '')"
+
+        # Apply Sales Rep filter
+        if filters.get("sales_rep"):
+            all_customer_query += """
+                AND name IN (
+                    SELECT a.Customer
+                    FROM `tabCustomer Mapping` a
+                    JOIN `tabSales Rep Info` b ON a.parent = b.name
+                    WHERE b.sales_rep = %s
+                )
+            """
+            params.append(filters["sales_rep"])
+
+        # Apply Customer filter
+        if filters.get("customer"):
+            placeholders = ', '.join(['%s'] * len(filters['customer']))
+            all_customer_query += f" AND name IN ({placeholders})"
+            params.extend(filters['customer'])
+
+        all_customers = frappe.db.sql(all_customer_query, params, as_dict=True)
         existing_customers = {row['customer'] for row in data}
+
         for customer_row in all_customers:
             if customer_row.get("customer") not in existing_customers:
-                data.append(customer_row)
+                data.append({
+                    "customer": customer_row.get("customer"),
+                    **{sg: 0 for sg in sanitized_groups}
+                })
 
-    # Various conditions to add customers with zero sales
-    if (
-        (filters.get("itm_group") and not filters.get("apple_id") and not filters.get('customer')) or
-        (filters.get("itm_group") and filters.get("apple_id") and not filters.get('customer')) or
-        (not filters.get("itm_group") and filters.get("apple_id") and not filters.get('customer') and not filters.get('parent_item_group')) or
-        (not filters.get("itm_group") and not filters.get("apple_id") and not filters.get('customer') and not filters.get('parent_item_group')) or
-        (not filters.get("itm_group") and not filters.get("apple_id") and not filters.get('customer') and filters.get('parent_item_group')) or
-        (not filters.get("itm_group") and filters.get("apple_id") and not filters.get('customer') and filters.get('parent_item_group'))
-    ):
-        add_missing_customers(data)
+    add_missing_customers(data)
 
-    # If no data is returned, return all customers with zero values
-    if not data:
-        customer_query = "SELECT name AS customer FROM `tabCustomer` WHERE disabled = 0"
-        
-        # Apply customer filter if exists
-        if filters.get('customer'):
-            customer_placeholders = ', '.join(['%s'] * len(filters['customer']))
-            customer_query += f" AND name IN ({customer_placeholders})"
-            customer_params = filters['customer']
-        else:
-            customer_params = []
-
-        all_customers = frappe.db.sql(customer_query, customer_params, as_dict=True)
-      
-        data = [{
-            "customer": customer.get('customer'),
-            **{sanitized_group: 0 for sanitized_group in sanitized_groups},
-        } for customer in all_customers]
-
-    # Dynamically add columns for each selected item group
+    # ---- Columns ----
     columns.extend({
         "label": group,
         "fieldname": sanitized_group,
@@ -197,7 +193,6 @@ def execute(filters=None):
         "width": 120
     } for group, sanitized_group in zip(selected_item_groups, sanitized_groups))
 
-    # Add total column for sum of all item groups
     columns.append({
         "label": "Total",
         "fieldname": "total",
@@ -205,8 +200,8 @@ def execute(filters=None):
         "width": 150
     })
 
-    # Calculate the total column for each row
+    # ---- Totals ----
     for row in data:
-        row['total'] = sum(row.get(sanitized_group, 0) for sanitized_group in sanitized_groups)
-    
+        row['total'] = sum(row.get(sg, 0) for sg in sanitized_groups)
+
     return columns, data

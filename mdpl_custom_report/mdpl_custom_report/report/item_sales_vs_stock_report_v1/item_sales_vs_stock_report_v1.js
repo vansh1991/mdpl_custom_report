@@ -41,6 +41,18 @@ frappe.query_reports["item sales vs stock report v1"] = {
             		"label": __("Apple ID"),
             		"fieldtype": "Check",
             		"default": 1
-        	}
+        	},
+{
+    fieldname: "include_zero_on_hand",
+    label: "Include Zero On Hand",
+    fieldtype: "Check",
+    default: 0
+},
+{
+    fieldname: "include_zero_sold_qty",
+    label: "Include Zero Sold Qty",
+    fieldtype: "Check",
+    default: 0
+}
 	]
 };

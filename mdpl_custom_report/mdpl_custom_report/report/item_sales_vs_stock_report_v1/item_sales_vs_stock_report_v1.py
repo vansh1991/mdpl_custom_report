@@ -33,8 +33,21 @@ def get_data(filters):
         "apple_id_flag": 1 if filters.get("apple_id") else 0
     }
 
-    conditions = ""
+    conditions = "1=1"
+    having_clauses = []
 
+    # Exclude zero On Hand if not checked
+    if not filters.get("include_zero_on_hand"):
+        having_clauses.append("on_hand_qty > 0")
+
+    # Exclude zero Sold Qty if not checked
+    if not filters.get("include_zero_sold_qty"):
+        having_clauses.append("sold_qty > 0")
+
+    having_condition = ""
+    if having_clauses:
+        having_condition = "HAVING " + " AND ".join(having_clauses)
+  
     # Parent Item Group
     if filters.get("parent_item_group"):
         parent_group = filters["parent_item_group"].strip("()")
@@ -77,11 +90,11 @@ def get_data(filters):
         LEFT JOIN `tabSales Invoice` si ON si.name = si_item.parent AND si.docstatus = 1
         JOIN `tabCustomer` c ON c.name = si.customer
         LEFT JOIN `tabItem Group` ig ON ig.name = item.item_group
-        WHERE si.posting_date BETWEEN %(from_date)s AND %(to_date)s
+        WHERE 
         {conditions}
         GROUP BY 
             item.item_code, item.item_name, item.item_group, ig.parent_item_group, bin.warehouse
-        HAVING on_hand_qty > 0
+        {having_condition}
         ORDER BY on_hand_qty DESC
     """
 

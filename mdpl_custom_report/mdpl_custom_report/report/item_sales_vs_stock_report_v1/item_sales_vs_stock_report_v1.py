@@ -91,7 +91,7 @@ def get_data(filters):
         JOIN `tabCustomer` c ON c.name = si.customer
         LEFT JOIN `tabItem Group` ig ON ig.name = item.item_group
         WHERE 
-        {conditions} //
+        {conditions}
         GROUP BY 
             item.item_code, item.item_name, item.item_group, ig.parent_item_group, bin.warehouse
         {having_condition}

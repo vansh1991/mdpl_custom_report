@@ -79,7 +79,7 @@ frappe.query_reports["Sales Invoice Script Report Weekly"] = {
     {
 	"fieldname": "sales_rep",
 	"label": "Sales Rep",
-	"fieldtype": "Link",
+	"fieldtype": "MultiSelectList",
 	"options": "Sales Rep Info",
 	"default": "",
     },

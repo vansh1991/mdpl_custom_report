@@ -4,8 +4,9 @@ from datetime import timedelta
 def execute(filters=None):
     filters = filters or {}
 
+    # ---- Validate dates ----
     if not filters.get("from_date") or not filters.get("to_date"):
-        frappe.msgprint("Please select both From Date and To Date.")
+        # Instead of msgprint popup, just return empty
         return [], []
 
     # ---- Get all leaf item groups ----
@@ -87,12 +88,15 @@ def execute(filters=None):
         """
         sales_rep_params = [filters["sales_rep"]]
 
-    # ---- Customer Filter ----
+    # ---- Customer Filter (Multi-Select) ----
     customer_filter_sql = ""
     customer_filter_params = []
     if filters.get("customer"):
-        customer_filter_sql = " AND si.customer = %s"
-        customer_filter_params = [filters["customer"]]
+        customer_list = filters["customer"]  # MultiSelect returns a list
+        if customer_list:
+            placeholders = ", ".join(["%s"] * len(customer_list))
+            customer_filter_sql = f" AND si.customer IN ({placeholders})"
+            customer_filter_params = customer_list
 
     # ---- Fetch Customers ----
     customer_query = f"""
@@ -111,14 +115,15 @@ def execute(filters=None):
                 WHERE sri.sales_rep = %s
             )
         """
-        customer_params.append(filters["sales_rep"])
+        customer_params += sales_rep_params
 
     if filters.get("customer"):
-        customer_query += " AND c.name = %s"
-        customer_params.append(filters["customer"])
+        customer_query += f" AND c.name IN ({', '.join(['%s']*len(filters['customer']))})"
+        customer_params += filters["customer"]
 
     all_customers = frappe.db.sql(customer_query, customer_params, as_dict=True)
 
+    # Initialize customer dictionary with zero values
     customer_dict = {
         c.name: {col["fieldname"]: 0 for col in columns if col["fieldname"] != "customer"}
         for c in all_customers

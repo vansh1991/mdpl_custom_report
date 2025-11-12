@@ -68,8 +68,6 @@ def execute(filters=None):
     # ---- Apple ID Filter ----
     apple_id_sql = ""
     apple_id_val = filters.get("apple_id")
-
-    # Handle checkbox properly (unchecked = "", "0", 0, None, False)
     if apple_id_val in (1, "1", True, "true", "True"):
         apple_id_sql = " AND (c.apple_id IS NOT NULL AND c.apple_id != '')"
     elif apple_id_val in (0, "0", "", None, False, "false", "False"):
@@ -89,13 +87,21 @@ def execute(filters=None):
         """
         sales_rep_params = [filters["sales_rep"]]
 
-    # ---- Build Customer Query ----
+    # ---- Customer Filter ----
+    customer_filter_sql = ""
+    customer_filter_params = []
+    if filters.get("customer"):
+        customer_filter_sql = " AND si.customer = %s"
+        customer_filter_params = [filters["customer"]]
+
+    # ---- Fetch Customers ----
     customer_query = f"""
         SELECT name FROM `tabCustomer` c
         WHERE c.disabled = 0
         {apple_id_sql}
     """
     customer_params = []
+
     if filters.get("sales_rep"):
         customer_query += """
             AND c.name IN (
@@ -107,9 +113,12 @@ def execute(filters=None):
         """
         customer_params.append(filters["sales_rep"])
 
-    
-    # ---- Fetch Customers ----
+    if filters.get("customer"):
+        customer_query += " AND c.name = %s"
+        customer_params.append(filters["customer"])
+
     all_customers = frappe.db.sql(customer_query, customer_params, as_dict=True)
+
     customer_dict = {
         c.name: {col["fieldname"]: 0 for col in columns if col["fieldname"] != "customer"}
         for c in all_customers
@@ -119,7 +128,7 @@ def execute(filters=None):
     for i, (week_start, week_end) in enumerate(week_ranges, start=1):
         for group, sg in zip(selected_item_groups, sanitized_groups):
             query = f"""
-                SELECT si.customer, SUM(si_item.qty) AS qty
+                SELECT si.customer, item.item_group, SUM(si_item.qty) AS qty
                 FROM `tabSales Invoice` si
                 INNER JOIN `tabSales Invoice Item` si_item ON si.name = si_item.parent
                 INNER JOIN `tabItem` item ON si_item.item_code = item.name
@@ -131,10 +140,10 @@ def execute(filters=None):
                   AND ig.name = %s
                   {apple_id_sql}
                   {sales_rep_filter_sql}
+                  {customer_filter_sql}
+                GROUP BY si.customer, item.item_group
             """
-            query_params = [week_start, week_end, group] + sales_rep_params
-
-            
+            query_params = [week_start, week_end, group] + sales_rep_params + customer_filter_params
             rows = frappe.db.sql(query, query_params, as_dict=True)
             for r in rows:
                 cust = r.customer
@@ -152,7 +161,7 @@ def execute(filters=None):
             grand_total += week_total
         customer_dict[cust]["grand_total"] = grand_total
 
-    # ---- Prepare Data ----
+    # ---- Prepare Final Data ----
     data = []
     for c in all_customers:
         row = {"customer": c.name}

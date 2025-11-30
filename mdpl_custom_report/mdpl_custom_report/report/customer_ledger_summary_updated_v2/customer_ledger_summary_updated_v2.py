@@ -53,6 +53,7 @@ class PartyLedgerSummaryReport:
         self.validate_filters()
         self.get_party_details()
         self.get_last_invoice_date()
+        self.get_payment_summary()
         if not self.parties:
             return [], []
         self.get_gl_entries()
@@ -69,6 +70,37 @@ class PartyLedgerSummaryReport:
         data = self.get_data()
         return columns, data
 
+
+
+    def get_customers_from_districts(self, filters):
+        conditions = []
+
+        # District Filter
+        if filters.get("district"):
+            districts = ", ".join(frappe.db.escape(d) for d in filters.district)
+            conditions.append(f"d.name IN ({districts})")
+
+        # Sub-District Filter
+        if filters.get("sub_district"):
+            subd = ", ".join(frappe.db.escape(s) for s in filters.sub_district)
+            conditions.append(f"sd.name IN ({subd})")
+
+        # No filters applied ? return empty
+        if not conditions:
+            return []
+
+        # Corrected SQL joins based on your doctypes
+        sql = f"""
+            SELECT sc.customer_name AS customer
+            FROM `tabDistrict` d
+            JOIN `tabSub District` sd ON sd.parent = d.name
+            JOIN `tabSub District Customer` dc ON dc.name = sd.name
+            JOIN `tabSub District Customer List` sc ON sc.parent = dc.name
+            WHERE {" AND ".join(conditions)}
+        """
+
+        result = frappe.db.sql(sql, as_dict=True)
+        return [r.customer for r in result]
 
 
     def calculate_closing_balances(self):
@@ -250,44 +282,73 @@ class PartyLedgerSummaryReport:
 
 
     def get_party_conditions(self, doctype):
-        conditions = []
-        group_field = "customer_group" if self.filters.party_type == "Customer" else "supplier_group"
-        if self.filters.party:
-            conditions.append(doctype.name == self.filters.party)
-        if self.filters.territory:
-            conditions.append(doctype.territory.isin(self.filters.territory))
-        if self.filters.get(group_field):
-            conditions.append(doctype[group_field].isin(self.filters.get(group_field)))
-        if self.filters.payment_terms_template:
-            conditions.append(doctype.payment_terms == self.filters.payment_terms_template)
-        if self.filters.sales_partner:
-            conditions.append(doctype.default_sales_partner.isin(self.filters.sales_partner))
-                  
-        sales_person = self.filters.get("sales_person")
+	    conditions = []
+	    group_field = "customer_group" if self.filters.party_type == "Customer" else "supplier_group"
 
-        if sales_person:
-        # If it’s a list, pick the first one
-            if isinstance(sales_person, list):
-                sales_person = sales_person[0] if sales_person else None
+	    # Regular Filters
+	    if self.filters.party:
+		    conditions.append(doctype.name == self.filters.party)
 
-            if sales_person:  # only if still valid
-                customer_mapping = Table("tabCustomer Mapping")
-                sales_rep_info = Table("tabSales Rep Info")
+	    if self.filters.territory:
+		    conditions.append(doctype.territory.isin(self.filters.territory))
 
-                customers_subquery = (
-                    Query.from_(customer_mapping)
-                    .join(sales_rep_info)
-                    .on(customer_mapping.parent == sales_rep_info.name)
-                    .select(customer_mapping.customer)
-                    .where(sales_rep_info.name == sales_person)
-                )
-                conditions.append(doctype.name.isin(customers_subquery))
-        if self.filters.party_type == "Customer":
-            if self.filters.apple_id:  # Checked: Show customers with Apple ID
-                conditions.append(IfNull(doctype.apple_id, "") != "")
-            else:  # Unchecked: Show customers without Apple ID
-                conditions.append(IfNull(doctype.apple_id, "") == "")
-        return conditions
+	    if self.filters.get(group_field):
+		    conditions.append(doctype[group_field].isin(self.filters.get(group_field)))
+
+	    if self.filters.payment_terms_template:
+		    conditions.append(doctype.payment_terms == self.filters.payment_terms_template)
+
+	    if self.filters.sales_partner:
+		    conditions.append(doctype.default_sales_partner.isin(self.filters.sales_partner))
+
+	    # ------------------------------
+	    # ?? District / Sub-District Filter
+	    # ------------------------------
+	    district = self.filters.get("district")
+	    sub_district = self.filters.get("sub_district")
+
+	    if district or sub_district:
+		    allowed_customers = self.get_customers_from_districts(self.filters)
+		    if allowed_customers:
+			    conditions.append(doctype.name.isin(allowed_customers))
+		    else:
+			    # QB-safe no-result condition (instead of "1=0")
+			    conditions.append(doctype.name == "NO_MATCH")
+
+	    # ------------------------------
+	    # Existing Sales Person Filter
+	    # ------------------------------
+	    sales_person = self.filters.get("sales_person")
+
+	    if sales_person:
+		    if isinstance(sales_person, list):
+			    sales_person = sales_person[0]
+
+		    if sales_person:
+			    customer_mapping = Table("tabCustomer Mapping")
+			    sales_rep_info = Table("tabSales Rep Info")
+
+			    customers_subquery = (
+				    Query.from_(customer_mapping)
+				    .join(sales_rep_info)
+				    .on(customer_mapping.parent == sales_rep_info.name)
+				    .select(customer_mapping.customer)
+				    .where(sales_rep_info.name == sales_person)
+			    )
+
+			    conditions.append(doctype.name.isin(customers_subquery))
+
+	    # ------------------------------
+	    # Apple ID Filter
+	    # ------------------------------
+	    if self.filters.party_type == "Customer":
+		    if self.filters.apple_id:
+			    conditions.append(IfNull(doctype.apple_id, "") != "")
+		    else:
+			    conditions.append(IfNull(doctype.apple_id, "") == "")
+
+	    return conditions
+
 
 
     def get_columns(self):
@@ -464,6 +525,24 @@ class PartyLedgerSummaryReport:
 					"fieldname": "last_invoice_date",
 					"width": 150,
 				},
+				{
+					"label": "Average DSO",
+					"fieldname": "average_dso",
+					"fieldtype": "Float",
+					"width": 120
+				},
+				{
+					"label": "Payments Received",
+					"fieldname": "payment_count",
+					"fieldtype": "Int",
+					"width": 120
+				},
+				{
+					"label": "Average Payment",
+					"fieldname": "average_payment",
+					"fieldtype": "Currency",
+					"width": 150
+				}
             ]
         else:
             columns += [
@@ -485,6 +564,10 @@ class PartyLedgerSummaryReport:
         reverse_dr_or_cr = "credit" if self.filters.party_type == "Customer" else "debit"
 
         self.party_data = frappe._dict()
+
+        # Ensure payment summary is computed
+        if not hasattr(self, "payment_summary"):
+            self.get_payment_summary()
 
         for gle in self.gl_entries:
             party_details = self.party_details.get(gle.party, {})
@@ -515,9 +598,13 @@ class PartyLedgerSummaryReport:
                         "first_invoiced_amount": self.get_first_invoiced_for_customer(
                             gle.party, self.ranges[0]
                         ) if self.ranges else 0.0,
-                        **avg_outstanding_dict,  # Flatten here
+                        **avg_outstanding_dict,
                         "last_received_cheque_date": None,
                         "last_invoice_date": None,
+                        # New fields
+                        "average_dso": 0.0,
+                        "payment_count": 0,
+                        "average_payment": 0.0,
                     }
                 ),
             )
@@ -537,7 +624,7 @@ class PartyLedgerSummaryReport:
                 else:
                     party_row.paid_amount -= amount
 
-        # Fill cheque and last invoice dates
+        # Fill cheque, last invoice dates, and new calculations
         for party, row in self.party_data.items():
             cheque_data = self.cheque_counts.get(party, {})
             row.cheque_received_count = cheque_data.get("cheque_received_count", 0)
@@ -554,6 +641,19 @@ class PartyLedgerSummaryReport:
             row.paid_amount -= total_party_adjustment
             for account in self.party_adjustment_accounts:
                 row["adj_" + scrub(account)] = self.party_adjustment_details.get(party, {}).get(account, 0)
+
+            # -------------------------
+            # Calculate Average DSO
+            # -------------------------
+            net_sales = row.invoiced_amount - row.return_amount
+            row.average_dso = ((row.opening_balance + row.closing_balance) / 2) / net_sales if net_sales else 0
+
+            # -------------------------
+            # Payments Received
+            # -------------------------
+            payment_info = self.payment_summary.get(party, {})
+            row.payment_count = payment_info.get("payment_count", 0)
+            row.average_payment = payment_info.get("average_payment", 0.0)
 
         return list(self.party_data.values())
 
@@ -619,6 +719,41 @@ class PartyLedgerSummaryReport:
                             )
                         )
         return query
+		
+    def get_payment_summary(self):
+        """Compute number of payments and average payment received per party."""
+        if self.filters.get("party_type") != "Customer":
+            self.payment_summary = frappe._dict()
+            return
+
+        payments = frappe.db.sql("""
+            SELECT
+                party,
+                COUNT(name) AS payment_count,
+                SUM(paid_amount) AS total_paid
+            FROM `tabPayment Entry`
+            WHERE docstatus = 1
+            AND party_type = 'Customer'
+            AND posting_date BETWEEN %s AND %s
+            AND party IN (%s)
+            GROUP BY party
+        """ % (
+            "%s", "%s", ",".join(["'%s'" % p for p in self.parties])
+        ), (self.filters.from_date, self.filters.to_date), as_dict=True)
+
+        self.payment_summary = frappe._dict({
+            party: {"payment_count": 0, "total_paid": 0.0, "average_payment": 0.0}
+            for party in self.parties
+        })
+
+        for p in payments:
+            self.payment_summary[p.party] = {
+                "payment_count": p.payment_count,
+                "total_paid": p.total_paid,
+                "average_payment": p.total_paid / p.payment_count if p.payment_count else 0
+            }
+
+
 
     def get_return_invoices(self):
         doctype = (
@@ -731,8 +866,7 @@ class PartyLedgerSummaryReport:
                         self.party_adjustment_details.setdefault(party, {})
                         self.party_adjustment_details[party].setdefault(account, 0)
                         self.party_adjustment_details[party][account] += amount
-
-
+						
 def get_children(doctype, value):
     if not isinstance(value, list):
         value = [d.strip() for d in value.strip().split(",") if d]

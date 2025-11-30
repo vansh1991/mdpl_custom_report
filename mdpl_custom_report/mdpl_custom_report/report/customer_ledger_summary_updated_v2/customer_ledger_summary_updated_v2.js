@@ -100,10 +100,26 @@ filters: [
 			'default': 1
 		},
 		{
-            fieldname: "avg_outstanding_ranges",
-            label: __("Average Outstanding"),
-            fieldtype: "Data",
-            default: "10, 15"
+    			fieldname: "district",
+    			label: __("District"),
+    			fieldtype: "MultiSelectList",
+    			get_data: function(txt) {
+        		return frappe.db.get_link_options("District", txt);
+    			}
+		},
+		{
+    			fieldname: "sub_district",
+    			label: __("Sub District"),
+    			fieldtype: "MultiSelectList",
+    			get_data: function (txt) {
+        		return frappe.db.get_link_options("Sub District", txt);
+    		}
+		},		
+		{
+            		fieldname: "avg_outstanding_ranges",
+            		label: __("Average Outstanding"),
+            		fieldtype: "Data",
+            		default: "10, 15"
 		},
 	],
 

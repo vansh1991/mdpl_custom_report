@@ -223,7 +223,7 @@ class PartyLedgerSummaryReport:
                 pe.workflow_state,
                 Count("*").as_("count"),
                 Sum(pe.paid_amount).as_("total_amount"),
-                Max(pe.posting_date).as_("last_received_cheque_date"),
+                Max(pe.reference_date).as_("last_received_cheque_date"),
             )
             .where(
                 (pe.party_type == "Customer")
@@ -646,7 +646,9 @@ class PartyLedgerSummaryReport:
             # Calculate Average DSO
             # -------------------------
             net_sales = row.invoiced_amount - row.return_amount
-            row.average_dso = ((row.opening_balance + row.closing_balance) / 2) / net_sales if net_sales else 0
+            t_average_dso = ((row.opening_balance + row.closing_balance) / 2) / net_sales if net_sales else 0
+            days_between = (self.filters.to_date - self.filters.from_date).days
+            row.average_dso = t_average_dso * days_between
 
             # -------------------------
             # Payments Received

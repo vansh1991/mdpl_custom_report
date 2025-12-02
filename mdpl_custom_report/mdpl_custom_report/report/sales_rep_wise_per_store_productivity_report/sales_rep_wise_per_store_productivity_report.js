@@ -15,17 +15,21 @@ frappe.query_reports["Sales Rep-wise per Store Productivity Report"] = {
             "default": frappe.datetime.month_end()
         },
         {
-            "fieldname": "item_group",
-            "label": __("Item Group"),
-            "fieldtype": "Link",
-            "options": "Item Group"
-        },
-        {
-            "fieldname": "parent_item_group",
-            "label": __("Parent Item Group"),
-            "fieldtype": "Link",
-            "options": "Item Group"
-        },
+    	    	label: "Item Group",
+    		fieldname: "item_group",
+    		fieldtype: "MultiSelectList",
+    		get_data: function (txt) {
+        	return frappe.db.get_link_options("Item Group", txt);
+    		}
+	},
+	{
+    		label: "Parent Item Group",
+    		fieldname: "parent_item_group",
+    		fieldtype: "MultiSelectList",
+    		get_data: function (txt) {
+        	return frappe.db.get_link_options("Item Group", txt);
+    		}
+	},
         {
             "fieldname": "sales_rep",
             "label": __("Sales Rep"),

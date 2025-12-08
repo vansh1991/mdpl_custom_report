@@ -15,7 +15,7 @@ frappe.query_reports["Sales Invoice Script Report Weekly SalesRep"] = {
             "default": frappe.datetime.month_end()
         },
         {
-            "fieldname": "itm_group",
+            "fieldname": "item_group",
             "label": "Item Group",
             "fieldtype": "MultiSelectList",
             "options": "Item Group",

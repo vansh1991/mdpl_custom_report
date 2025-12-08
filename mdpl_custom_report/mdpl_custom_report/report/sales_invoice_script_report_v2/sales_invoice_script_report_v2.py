@@ -1,4 +1,3 @@
-
 import frappe
 
 def execute(filters=None):
@@ -25,7 +24,7 @@ def execute(filters=None):
         selected_item_groups = [
             ig.name for ig in all_item_groups if ig.parent_item_group in parent_groups
         ]
-        
+
     # If itm_group is selected, prioritize itm_group over parent_item_group
     if filters.get('itm_group'):
         selected_item_groups = filters['itm_group']
@@ -34,27 +33,22 @@ def execute(filters=None):
     if not selected_item_groups:
         selected_item_groups = [d["name"] for d in all_item_groups]
 
-    # Create column definitions, starting with the customer column
-    columns = [
-        {"label": "Customer", "fieldname": "customer", "fieldtype": "Data", "width": 150}
-    ]
-
-    # Sanitize dynamic column names (replace spaces with underscores)
+    # Sanitize dynamic column names
     sanitized_groups = [group.replace(' ', '_').lower() for group in selected_item_groups]
 
-    # Create the dynamic SELECT clause
+    # Dynamic SELECT for item groups
     group_select_clause = ", ".join(
-        f"SUM(CASE WHEN ig.item_group_name = '{group}' THEN si_item.qty ELSE 0 END) AS `{sanitized_group}`"
+        f"SUM(CASE WHEN ig.name = '{group}' THEN si_item.qty ELSE 0 END) AS `{sanitized_group}`"
         for group, sanitized_group in zip(selected_item_groups, sanitized_groups)
     )
 
-    # Add Sales Rep filter via customer mapping join
+    # Sales Rep filter
     sales_rep_filter = ""
     sales_rep_params = []
     if filters.get('sales_rep'):
         sales_rep_filter = """
         AND si.customer IN (
-            SELECT a.Customer
+            SELECT a.customer
             FROM `tabCustomer Mapping` a
             JOIN `tabSales Rep Info` b ON a.parent = b.name
             WHERE b.sales_rep = %s
@@ -62,17 +56,24 @@ def execute(filters=None):
         """
         sales_rep_params.append(filters['sales_rep'])
 
-    # Construct the base query with filters
+    # Sales Category filter
+    sales_category_filter = ""
+    sales_category_params = []
+    if filters.get('sales_category'):
+        placeholders = ', '.join(['%s'] * len(filters['sales_category']))
+        sales_category_filter = f" AND sc.name IN ({placeholders})"
+        sales_category_params.extend(filters['sales_category'])
+
+    # Base where clause
     where_clause = (
-        "si.docstatus = 1 "
-        "AND si.is_return = 0 "
+        "si.docstatus = 1 AND si.is_return = 0 "
         "AND si.posting_date BETWEEN %s AND %s"
     )
 
     # itm_group filter
     if filters.get('itm_group'):
         group_placeholders = ', '.join(['%s'] * len(filters['itm_group']))
-        where_clause += f" AND ig.item_group_name IN ({group_placeholders})"
+        where_clause += f" AND ig.name IN ({group_placeholders})"
 
     # parent_item_group filter
     if filters.get('parent_item_group') and not filters.get('itm_group'):
@@ -84,34 +85,33 @@ def execute(filters=None):
         customer_placeholders = ', '.join(['%s'] * len(filters['customer']))
         where_clause += f" AND si.customer IN ({customer_placeholders})"
 
-    # Apple ID filter
-    if "apple_id" in filters:
-        if filters["apple_id"] == 1:   # checked
-            where_clause += " AND c.apple_id IS NOT NULL AND c.apple_id != ''"
-        elif filters["apple_id"] == 0: # unchecked
-            where_clause += " AND (c.apple_id IS NULL OR c.apple_id = '')"
-
-    # Append sales_rep filter
+    # Append sales_rep and sales_category filters
     if filters.get('sales_rep'):
         where_clause += sales_rep_filter
+    if filters.get('sales_category'):
+        where_clause += sales_category_filter
 
-    # Construct the final query
+    # Final query
     query = f"""
     SELECT 
         si.customer AS customer,
+        COALESCE(sc.name, 'Unassigned') AS sales_category,
+        COALESCE(d.name, 'Unassigned') AS district,
+        COALESCE(sd.name, 'Unassigned') AS sub_district,
         {group_select_clause}
-    FROM 
-        `tabSales Invoice` si
-    INNER JOIN `tabSales Invoice Item` si_item ON si.name = si_item.parent
+    FROM `tabDelivery Note` si
+    INNER JOIN `tabDelivery Note Item` si_item ON si.name = si_item.parent
     INNER JOIN `tabItem` item ON si_item.item_code = item.name
     INNER JOIN `tabItem Group` ig ON item.item_group = ig.name
     INNER JOIN `tabCustomer` c ON si.customer = c.name
-    WHERE  
-        {where_clause}
-    GROUP BY 
-        si.customer
-    ORDER BY 
-        si.customer;
+    LEFT JOIN `tabSales Category Customer` scc ON si.customer = scc.customer_name
+    LEFT JOIN `tabSales Category` sc ON scc.parent = sc.name
+    LEFT JOIN `tabSub District Customer List` sdc ON si.customer = sdc.customer_name
+    LEFT JOIN `tabSub District` sd ON sdc.parent = sd.name
+    LEFT JOIN `tabDistrict` d ON sd.parent = d.name
+    WHERE {where_clause}
+    GROUP BY si.customer, sc.name, sd.name, d.name
+    ORDER BY si.customer, sc.name, sd.name, d.name
     """
 
     # Build params
@@ -124,29 +124,33 @@ def execute(filters=None):
         params.extend(filters['customer'])
     if filters.get('sales_rep'):
         params.extend(sales_rep_params)
-
+    if filters.get('sales_category'):
+        params.extend(sales_category_params)
+    # Execute query
     try:
         data = frappe.db.sql(query, params, as_dict=True)
     except Exception as e:
         frappe.throw(f"Error executing query: {e}")
 
-    # ---- Handle missing customers (zero sales) ----
+    # ---- Handle missing customers ----
     def add_missing_customers(data):
-        all_customer_query = "SELECT name AS customer FROM `tabCustomer` WHERE disabled = 0"
+        # Fetch all active customers with optional filters
+        all_customer_query = """
+            SELECT c.name AS customer, sc.name AS sales_category,sd.name as sub_district, d.name as district
+            FROM `tabCustomer` c
+            LEFT JOIN `tabSales Category Customer` scc ON c.name = scc.customer_name
+            LEFT JOIN `tabSales Category` sc ON scc.parent = sc.name
+            LEFT JOIN `tabSub District Customer List` sdc ON c.name = sdc.customer_name
+            LEFT JOIN `tabSub District` sd ON sdc.parent = sd.name
+            LEFT JOIN `tabDistrict` d ON sd.parent = d.name
+            WHERE c.disabled = 0
+        """
         params = []
 
-        # Apply Apple ID filter
-        if "apple_id" in filters:
-            if filters["apple_id"] == 1:
-                all_customer_query += " AND apple_id IS NOT NULL AND apple_id != ''"
-            elif filters["apple_id"] == 0:
-                all_customer_query += " AND (apple_id IS NULL OR apple_id = '')"
-
-        # Apply Sales Rep filter
         if filters.get("sales_rep"):
             all_customer_query += """
-                AND name IN (
-                    SELECT a.Customer
+                AND c.name IN (
+                    SELECT a.customer
                     FROM `tabCustomer Mapping` a
                     JOIN `tabSales Rep Info` b ON a.parent = b.name
                     WHERE b.sales_rep = %s
@@ -154,25 +158,35 @@ def execute(filters=None):
             """
             params.append(filters["sales_rep"])
 
-        # Apply Customer filter
         if filters.get("customer"):
             placeholders = ', '.join(['%s'] * len(filters['customer']))
-            all_customer_query += f" AND name IN ({placeholders})"
+            all_customer_query += f" AND c.name IN ({placeholders})"
             params.extend(filters['customer'])
 
         all_customers = frappe.db.sql(all_customer_query, params, as_dict=True)
-        existing_customers = {row['customer'] for row in data}
+        existing_customers = {(row['customer'], row.get('sales_category')) for row in data}
 
         for customer_row in all_customers:
-            if customer_row.get("customer") not in existing_customers:
+            key = (customer_row.get("customer"), customer_row.get("sales_category"))
+            if key not in existing_customers:
                 data.append({
                     "customer": customer_row.get("customer"),
+                    "sales_category": customer_row.get("sales_category") or "Unassigned",
+                    "sub_district": customer_row.get("sub_district") or "Unassigned",
+                    "district": customer_row.get("district") or "Unassigned",
                     **{sg: 0 for sg in sanitized_groups}
                 })
 
     add_missing_customers(data)
 
     # ---- Columns ----
+    columns = [
+        {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer", "width": 150},
+        {"label": "District", "fieldname": "district", "fieldtype": "Data", "width": 150},
+        {"label": "Sub District", "fieldname": "sub_district", "fieldtype": "Data", "width": 150},
+        {"label": "Sales Category", "fieldname": "sales_category", "fieldtype": "Link", "options": "Sales Category", "width": 150}
+    ]
+
     columns.extend({
         "label": group,
         "fieldname": sanitized_group,

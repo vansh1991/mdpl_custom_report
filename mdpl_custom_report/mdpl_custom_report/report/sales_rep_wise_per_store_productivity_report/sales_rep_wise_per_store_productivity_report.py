@@ -68,14 +68,13 @@ class SalesRepProductivityReport:
 
         query = f"""
             SELECT SUM(si_item.qty) AS qty
-            FROM `tabSales Invoice` si
-            INNER JOIN `tabSales Invoice Item` si_item ON si.name = si_item.parent
+            FROM `tabDelivery Note` si
+            INNER JOIN `tabDelivery Note Item` si_item ON si.name = si_item.parent
             INNER JOIN `tabItem` i ON si_item.item_code = i.name
             INNER JOIN `tabItem Group` ig ON i.item_group = ig.name
             INNER JOIN `tabCustomer Mapping` cm ON si.customer = cm.customer
             INNER JOIN `tabSales Rep Info` b ON cm.parent = b.name
             WHERE si.docstatus = 1
-                AND si.is_return = 0
                 AND si.posting_date BETWEEN %(from_date)s AND %(to_date)s
                 AND b.sales_rep = %(sales_rep)s
                 {conditions}
@@ -115,8 +114,8 @@ class SalesRepProductivityReport:
             SELECT COUNT(*) AS active_count
             FROM (
                 SELECT cm.customer, SUM(si_item.qty) AS qty
-                FROM `tabSales Invoice` si
-                INNER JOIN `tabSales Invoice Item` si_item ON si.name = si_item.parent
+                FROM `tabDelivery Note` si
+                INNER JOIN `tabDelivery Note Item` si_item ON si.name = si_item.parent
                 INNER JOIN `tabItem` i ON si_item.item_code = i.name
                 INNER JOIN `tabItem Group` ig ON i.item_group = ig.name
                 INNER JOIN `tabCustomer Mapping` cm ON si.customer = cm.customer

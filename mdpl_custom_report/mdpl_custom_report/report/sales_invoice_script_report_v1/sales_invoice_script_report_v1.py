@@ -114,8 +114,8 @@ def execute(filters=None):
         si.customer AS customer,
         {group_select_clause}
     FROM 
-        `tabSales Invoice` si
-    INNER JOIN `tabSales Invoice Item` si_item ON si.name = si_item.parent
+        `tabDelivery Note` si
+    INNER JOIN `tabDelivery Note Item` si_item ON si.name = si_item.parent
     INNER JOIN `tabItem` item ON si_item.item_code = item.name
     INNER JOIN `tabItem Group` ig ON item.item_group = ig.name
     INNER JOIN `tabCustomer` c ON si.customer = c.name

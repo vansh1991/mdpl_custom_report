@@ -134,8 +134,8 @@ def execute(filters=None):
         for group, sg in zip(selected_item_groups, sanitized_groups):
             query = f"""
                 SELECT si.customer, item.item_group, SUM(si_item.qty) AS qty
-                FROM `tabSales Invoice` si
-                INNER JOIN `tabSales Invoice Item` si_item ON si.name = si_item.parent
+                FROM `tabDelivery Note` si
+                INNER JOIN `tabDelivery Note Item` si_item ON si.name = si_item.parent
                 INNER JOIN `tabItem` item ON si_item.item_code = item.name
                 INNER JOIN `tabItem Group` ig ON item.item_group = ig.name
                 INNER JOIN `tabCustomer` c ON si.customer = c.name

@@ -1,17 +1,18 @@
 import frappe
 from frappe import _
-from frappe.utils import getdate, nowdate
+from frappe.utils import getdate, nowdate, add_days
 
 class CustomerOverdueReport:
     def __init__(self, filters=None):
         self.filters = frappe._dict(filters or {})
-        self.filters.from_date = getdate(self.filters.get("from_date") or nowdate())
-        self.filters.to_date = getdate(self.filters.get("to_date") or nowdate())
+        self.from_date = getdate(self.filters.get("from_date") or nowdate())
+        self.to_date = getdate(self.filters.get("to_date") or nowdate())
         
-        # Daily and weekly buckets
-        self.daily_ranges = sorted([int(d) for d in self.filters.get("daily_ranges", "").split(",") if d.isdigit()])
-        self.weekly_ranges = sorted([int(w) for w in self.filters.get("weekly_ranges", "").split(",") if w.isdigit()])
-        self.overdue_type = self.filters.get("overdue_type", "Daily")  # "Daily" or "Weekly"
+        # Generate dynamic daily date ranges between from_date and to_date
+        total_days = (self.to_date - self.from_date).days + 1  # inclusive
+        self.daily_dates = [add_days(self.from_date, i) for i in range(total_days)]
+
+        self.overdue_type = "Daily"  # Only daily overdue for this version
 
     def run(self):
         self.get_customers()
@@ -24,6 +25,14 @@ class CustomerOverdueReport:
     def get_customers(self):
         conditions = []
         values = []
+
+        # Apple ID filter logic
+        apple_id_checked = self.filters.get("apple_id")  # True if checked, else None or False
+        if apple_id_checked:
+            conditions.append("apple_id IS NOT NULL AND apple_id != ''")
+        else:
+            conditions.append("apple_id IS NULL OR apple_id = ''")
+
         if self.filters.get("customer"):
             conditions.append("name=%s")
             values.append(self.filters.customer)
@@ -45,7 +54,7 @@ class CustomerOverdueReport:
             "party IS NOT NULL",
             "posting_date <= %s"
         ]
-        values = [self.filters.to_date]
+        values = [self.to_date]
 
         if self.filters.get("company"):
             conditions.append("company=%s")
@@ -72,8 +81,7 @@ class CustomerOverdueReport:
                 "total_due": 0.0,
                 "total_payment": 0.0,
                 "net_outstanding": 0.0,
-                "daily": [0.0 for _ in self.daily_ranges],
-                "weekly": [0.0 for _ in self.weekly_ranges]
+                "daily": [0.0 for _ in self.daily_dates]
             }
 
         for gle in self.gl_entries:
@@ -89,21 +97,10 @@ class CustomerOverdueReport:
             self.customer_data[party]["total_payment"] += credit
             self.customer_data[party]["net_outstanding"] += net_amount
 
-            # Days overdue relative to 'to_date'
-            days_overdue = (self.filters.to_date - getdate(gle.posting_date)).days
-
-            # Fill daily buckets
-            if self.overdue_type.lower() == "daily":
-                for idx, day_limit in enumerate(self.daily_ranges):
-                    if days_overdue <= day_limit:
-                        self.customer_data[party]["daily"][idx] += net_amount
-
-            # Fill weekly buckets
-            elif self.overdue_type.lower() == "weekly":
-                weeks_overdue = days_overdue // 7
-                for idx, week_limit in enumerate(self.weekly_ranges):
-                    if weeks_overdue <= week_limit:
-                        self.customer_data[party]["weekly"][idx] += net_amount
+            # Calculate the index based on posting_date
+            days_overdue = (getdate(gle.posting_date) - self.from_date).days
+            if 0 <= days_overdue < len(self.daily_dates):
+                self.customer_data[party]["daily"][days_overdue] += net_amount
 
     def get_columns(self):
         columns = [
@@ -114,23 +111,14 @@ class CustomerOverdueReport:
             {"label": _("Net Outstanding"), "fieldname": "net_outstanding", "fieldtype": "Currency", "width": 120},
         ]
 
-        if self.overdue_type.lower() == "daily":
-            for idx, day_limit in enumerate(self.daily_ranges):
-                columns.append({
-                    "label": _("Overdue <= {0} Days").format(day_limit),
-                    "fieldname": f"daily_{idx+1}",
-                    "fieldtype": "Currency",
-                    "width": 120
-                })
-
-        if self.overdue_type.lower() == "weekly":
-            for idx, week_limit in enumerate(self.weekly_ranges):
-                columns.append({
-                    "label": _("Overdue <= {0} Weeks").format(week_limit),
-                    "fieldname": f"weekly_{idx+1}",
-                    "fieldtype": "Currency",
-                    "width": 120
-                })
+        # Use actual dates as column labels
+        for idx, date in enumerate(self.daily_dates):
+            columns.append({
+                "label": _(date.strftime("%Y-%m-%d")),
+                "fieldname": f"daily_{idx+1}",
+                "fieldtype": "Currency",
+                "width": 120
+            })
 
         return columns
 
@@ -145,13 +133,9 @@ class CustomerOverdueReport:
                 "net_outstanding": row.get("net_outstanding")
             }
 
-            if self.overdue_type.lower() == "daily":
-                for idx, val in enumerate(row.get("daily", [])):
-                    doc[f"daily_{idx+1}"] = val
-
-            if self.overdue_type.lower() == "weekly":
-                for idx, val in enumerate(row.get("weekly", [])):
-                    doc[f"weekly_{idx+1}"] = val
+            # Daily values
+            for idx, val in enumerate(row.get("daily", [])):
+                doc[f"daily_{idx+1}"] = val
 
             data.append(doc)
         return data

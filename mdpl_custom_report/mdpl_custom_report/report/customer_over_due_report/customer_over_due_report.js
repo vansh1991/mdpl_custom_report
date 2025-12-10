@@ -28,30 +28,17 @@ frappe.query_reports["Customer Over Due Report"] = {
             "options": "Customer"
         },
         {
-            "fieldname": "overdue_type",
-            "label": __("Overdue Type"),
-            "fieldtype": "Select",
-            "options": "Daily\nWeekly",
-            "reqd": 1,
-            "default": "Daily"
-        },
-        {
-            "fieldname": "daily_ranges",
-            "label": __("Daily Overdue Buckets (comma separated days)"),
-            "fieldtype": "Data",
-            "default": "7,14,21,30"
-        },
-        {
-            "fieldname": "weekly_ranges",
-            "label": __("Weekly Overdue Buckets (comma separated weeks)"),
-            "fieldtype": "Data",
-            "default": "1,2,3,4"
-        },
-        {
             "fieldname": "cost_center",
             "label": __("Cost Center"),
             "fieldtype": "Link",
             "options": "Cost Center"
+        },
+	{
+            "fieldname": "apple_id",
+            "label": __("Apple ID"),
+            "fieldtype": "Check",
+            "default": 1,
+            "description": __("Check to show only customers with Apple ID. Uncheck to show customers without Apple ID.")
         }
     ],
 

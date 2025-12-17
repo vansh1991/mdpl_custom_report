@@ -31,16 +31,18 @@ class SalesRepProductivityReport:
         for rep in reps:
             total_units = self.get_total_units(rep)
             total_stores = self.get_total_stores(rep)
-            active_stores = self.get_active_stores(rep)  # NEW
+            active_stores = self.get_active_stores(rep)
 
             productivity = (total_units / total_stores) if total_stores else 0
+            active_productivity = (total_units / active_stores) if active_stores else 0
 
             results.append({
                 "sales_rep": rep,
                 "total_units": total_units,
                 "total_stores": total_stores,
-                "active_stores": active_stores,  # NEW
-                "productivity": productivity
+                "active_stores": active_stores,
+                "productivity": productivity,
+                "active_productivity": active_productivity,
             })
 
         return results
@@ -54,14 +56,16 @@ class SalesRepProductivityReport:
     # ---------------------------- 1. TOTAL UNITS ----------------------------
     def get_total_units(self, sales_rep):
         conditions = ""
-        params = {"from_date": self.from_date, "to_date": self.to_date, "sales_rep": sales_rep}
+        params = {
+            "from_date": self.from_date,
+            "to_date": self.to_date,
+            "sales_rep": sales_rep
+        }
 
-        # Multi-select item groups
         if self.item_group:
             conditions += " AND ig.name IN %(item_group)s"
             params["item_group"] = self.item_group
 
-        # Multi-select parent item groups
         if self.parent_item_group:
             conditions += " AND ig.parent_item_group IN %(parent_item_group)s"
             params["parent_item_group"] = self.parent_item_group
@@ -80,27 +84,28 @@ class SalesRepProductivityReport:
                 {conditions}
         """
 
-        qty = frappe.db.sql(query, params, as_dict=True)[0].qty or 0
-        return qty
+        return frappe.db.sql(query, params, as_dict=True)[0].qty or 0
 
     # ---------------------------- 2. TOTAL STORES ----------------------------
     def get_total_stores(self, sales_rep):
-        stores = frappe.db.sql("""
+        return frappe.db.sql("""
             SELECT COUNT(DISTINCT cm.customer) AS store_count
             FROM `tabCustomer Mapping` cm
             INNER JOIN `tabSales Rep Info` b ON cm.parent = b.name
             WHERE b.sales_rep = %s
         """, (sales_rep,), as_dict=True)[0].store_count or 0
-        return stores
 
-    # ---------------------------- 3. ACTIVE STORES (NEW) ----------------------------
+    # ---------------------------- 3. ACTIVE STORES ----------------------------
     def get_active_stores(self, sales_rep):
         """
         Active Store = Store where total qty >= 1
         """
-
         conditions = ""
-        params = {"from_date": self.from_date, "to_date": self.to_date, "sales_rep": sales_rep}
+        params = {
+            "from_date": self.from_date,
+            "to_date": self.to_date,
+            "sales_rep": sales_rep
+        }
 
         if self.item_group:
             conditions += " AND ig.name IN %(item_group)s"
@@ -126,7 +131,7 @@ class SalesRepProductivityReport:
                     AND b.sales_rep = %(sales_rep)s
                     {conditions}
                 GROUP BY cm.customer
-                HAVING SUM(si_item.qty) >= 1  -- IMPORTANT CHANGE
+                HAVING SUM(si_item.qty) >= 1
             ) AS temp
         """
 
@@ -138,11 +143,9 @@ class SalesRepProductivityReport:
             {"label": _("Sales Rep"), "fieldname": "sales_rep", "fieldtype": "Data", "width": 180},
             {"label": _("Total Units Billed"), "fieldname": "total_units", "fieldtype": "Float", "width": 120},
             {"label": _("Total Stores"), "fieldname": "total_stores", "fieldtype": "Int", "width": 120},
-
-            # NEW COLUMN:
             {"label": _("Active Stores (Qty >= 1)"), "fieldname": "active_stores", "fieldtype": "Int", "width": 140},
-
             {"label": _("Productivity (Units / Store)"), "fieldname": "productivity", "fieldtype": "Float", "width": 160},
+            {"label": _("Active Productivity (Units / Active Store)"), "fieldname": "active_productivity", "fieldtype": "Float", "width": 200},
         ]
 
 

@@ -33,12 +33,19 @@ frappe.query_reports["Customer Over Due Report"] = {
             "fieldtype": "Link",
             "options": "Cost Center"
         },
-	{
+        {
             "fieldname": "apple_id",
             "label": __("Apple ID"),
             "fieldtype": "Check",
             "default": 1,
             "description": __("Check to show only customers with Apple ID. Uncheck to show customers without Apple ID.")
+        },
+        {
+            "fieldname": "overdue_days",
+            "label": __("Overdue Days"),
+            "fieldtype": "Int",
+            "default": 7,
+            "description": __("Show only entries overdue for more than this number of days")
         }
     ],
 
@@ -50,7 +57,8 @@ frappe.query_reports["Customer Over Due Report"] = {
 
     formatter: function(value, row, column, data, default_formatter) {
         value = default_formatter(value, row, column, data);
-        if (column.fieldname.startsWith('daily_') || column.fieldname.startsWith('weekly_')) {
+        if (column.fieldname.startsWith('daily_') || column.fieldname.startsWith('weekly_') ||
+            column.fieldname.endsWith('_days') || column.fieldname === "total") {
             if (value > 0) {
                 value = `<span style="color:red;font-weight:bold;">${value}</span>`;
             }

@@ -12,7 +12,13 @@ class CustomerOverdueReport:
         total_days = (self.to_date - self.from_date).days + 1  # inclusive
         self.daily_dates = [add_days(self.from_date, i) for i in range(total_days)]
 
-        self.overdue_type = "Daily"  # Only daily overdue for this version
+        # Set overdue days from filter
+        overdue_input = self.filters.get("overdue_days") or "0"
+        try:
+            overdue_list = [int(x.strip()) for x in str(overdue_input).split(",")]
+            self.overdue_days = max(overdue_list)  # take max for threshold
+        except Exception:
+            self.overdue_days = 0  # default
 
     def run(self):
         self.get_customers()
@@ -93,14 +99,21 @@ class CustomerOverdueReport:
             credit = gle.credit or 0
             net_amount = debit - credit
 
+            # Calculate overdue days from posting_date to today
+            days_overdue = (getdate(nowdate()) - getdate(gle.posting_date)).days
+
+            # Only consider if overdue more than threshold
+            if days_overdue < self.overdue_days:
+                continue
+
             self.customer_data[party]["total_due"] += debit
             self.customer_data[party]["total_payment"] += credit
             self.customer_data[party]["net_outstanding"] += net_amount
 
-            # Calculate the index based on posting_date
-            days_overdue = (getdate(gle.posting_date) - self.from_date).days
-            if 0 <= days_overdue < len(self.daily_dates):
-                self.customer_data[party]["daily"][days_overdue] += net_amount
+            # Fill daily buckets if within from_date and to_date
+            days_index = (getdate(gle.posting_date) - self.from_date).days
+            if 0 <= days_index < len(self.daily_dates):
+                self.customer_data[party]["daily"][days_index] += net_amount
 
     def get_columns(self):
         columns = [
@@ -111,7 +124,7 @@ class CustomerOverdueReport:
             {"label": _("Net Outstanding"), "fieldname": "net_outstanding", "fieldtype": "Currency", "width": 120},
         ]
 
-        # Use actual dates as column labels
+        # Daily buckets as columns
         for idx, date in enumerate(self.daily_dates):
             columns.append({
                 "label": _(date.strftime("%Y-%m-%d")),
@@ -133,7 +146,7 @@ class CustomerOverdueReport:
                 "net_outstanding": row.get("net_outstanding")
             }
 
-            # Daily values
+            # Fill daily values
             for idx, val in enumerate(row.get("daily", [])):
                 doc[f"daily_{idx+1}"] = val
 

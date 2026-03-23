@@ -1,8 +1,7 @@
 // Copyright (c) 2025, TechDude and contributors
 // For license information, please see license.txt
-
 frappe.query_reports["Customer Ledger Summary Updated v1"] = {
-filters: [
+	filters: [
 		{
 			fieldname: "company",
 			label: __("Company"),
@@ -94,17 +93,46 @@ filters: [
 			hidden: 1,
 		},
 		{
-			'label': __('Apple ID'),
-			'fieldname': 'apple_id',
-			'fieldtype': 'Check',
-			'default': 1
+			label: __("Apple ID"),
+			fieldname: "apple_id",
+			fieldtype: "Check",
+			default: 1,
 		},
 		{
-            fieldname: "avg_outstanding_ranges",
-            label: __("Average Outstanding"),
-            fieldtype: "Data",
-            default: "10, 15"
+			fieldname: "avg_outstanding_ranges",
+			label: __("Average Outstanding"),
+			fieldtype: "Data",
+			default: "10, 15",
 		},
-	],
 
+		// -- NEW FILTER: GST No search --------------------------------------
+		{
+			fieldname: "gstin",
+			label: __("GST No (GSTIN)"),
+			fieldtype: "Data",
+			description: __("Filter by GST number - shows all customers sharing this GST No"),
+			on_change: () => {
+				// When a GSTIN is typed, auto-enable group_by_gst for convenience
+				const gstin = frappe.query_report.get_filter_value("gstin");
+				if (gstin) {
+					frappe.query_report.set_filter_value("group_by_gst", 1);
+				}
+			},
+		},
+		// -- NEW FILTER: Group by GST No toggle ----------------------------
+		{
+			fieldname: "group_by_gst",
+			label: __("Group by GST No"),
+			fieldtype: "Check",
+			default: 0,
+			description: __(
+				"Consolidate customers sharing the same GST number into a single row"
+			),
+			on_change: () => {
+				// Refresh immediately when toggled so the report re-runs
+				frappe.query_report.refresh();
+			},
+		},
+		// -- END NEW --------------------------------------------------------
+	],
 };

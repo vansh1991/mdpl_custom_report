@@ -1,0 +1,9 @@
+{
+ "doctype": "Page",
+ "module": "Mdpl Custom Report",
+ "name": "patch-dn-bulk",
+ "page_name": "patch-dn-bulk",
+ "roles": [],
+ "standard": "Yes",
+ "title": "Bulk Patch Delivery Note Fields"
+}

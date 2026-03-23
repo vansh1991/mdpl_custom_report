@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import frappe
 from frappe import _, qb, scrub
 from frappe.query_builder import Criterion, Tuple
@@ -6,8 +7,7 @@ from frappe.utils import getdate, nowdate, add_days
 from frappe.utils.nestedset import get_descendants_of
 from pypika.terms import LiteralValue
 from pypika.functions import Count, Sum
-from pypika import CustomFunction  # Added for DATEDIFF
-from pypika import CustomFunction, Query, Table  # <- add Query and Table here
+from pypika import CustomFunction, Query, Table
 
 from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
     get_accounting_dimensions,
@@ -32,6 +32,11 @@ class PartyLedgerSummaryReport:
         self.filters.from_date = getdate(self.filters.from_date or nowdate())
         self.filters.to_date = getdate(self.filters.to_date or nowdate())
         self.filters.apple_id = self.filters.get("apple_id", 0)
+
+        # -- NEW: GST grouping flag ------------------------------------------
+        self.group_by_gst = bool(self.filters.get("group_by_gst"))
+        # -------------------------------------------------------------------
+
         self.ranges = [
             int(num.strip())
             for num in self.filters.get("avg_outstanding_ranges", "10").split(",")
@@ -63,9 +68,17 @@ class PartyLedgerSummaryReport:
             args.get("naming_by")[0], args.get("naming_by")[1]
         )
         columns = self.get_columns()
-        data = self.get_data()
+
+        # -- NEW: Route to GST-grouped or standard data builder -------------
+        if self.group_by_gst:
+            data = self.get_data_grouped_by_gst()
+        else:
+            data = self.get_data()
+        # -------------------------------------------------------------------
+
         return columns, data
 
+    # -- NEW: GST-aware closing balance map (keyed by party name) -----------
     def calculate_closing_balances(self):
         invoice_dr_or_cr = (
             "debit" if self.filters.party_type == "Customer" else "credit"
@@ -159,6 +172,9 @@ class PartyLedgerSummaryReport:
                 doctype.name.as_("party"),
                 f"{scrub(party_type)}_name",
                 IfNull(doctype.apple_id, "").as_("apple_id"),
+                # -- NEW: fetch GSTIN so we can group later -----------------
+                IfNull(doctype.gstin, "").as_("gstin"),
+                # -----------------------------------------------------------
             )
             .where(Criterion.all(conditions))
         )
@@ -171,6 +187,16 @@ class PartyLedgerSummaryReport:
         for row in party_details:
             self.parties.append(row.party)
             self.party_details[row.party] = row
+
+        # -- NEW: build a GSTIN -> [party, ...] map for grouping -------------
+        self.gstin_to_parties = frappe._dict()
+        self.party_to_gstin = frappe._dict()
+        for row in party_details:
+            gstin = row.get("gstin") or ""
+            self.party_to_gstin[row.party] = gstin
+            if gstin:
+                self.gstin_to_parties.setdefault(gstin, []).append(row.party)
+        # -------------------------------------------------------------------
 
     def get_cheque_count(self):
         if self.filters.party_type != "Customer":
@@ -217,7 +243,6 @@ class PartyLedgerSummaryReport:
                     "total_amount"
                 ]
 
-
     def get_party_conditions(self, doctype):
         conditions = []
         group_field = "customer_group" if self.filters.party_type == "Customer" else "supplier_group"
@@ -231,18 +256,19 @@ class PartyLedgerSummaryReport:
             conditions.append(doctype.payment_terms == self.filters.payment_terms_template)
         if self.filters.sales_partner:
             conditions.append(doctype.default_sales_partner.isin(self.filters.sales_partner))
-                  
-        sales_person = self.filters.get("sales_person")
 
+        # -- NEW: filter by GST No directly ---------------------------------
+        if self.filters.get("gstin"):
+            conditions.append(doctype.gstin == self.filters.gstin)
+        # -------------------------------------------------------------------
+
+        sales_person = self.filters.get("sales_person")
         if sales_person:
-        # If it’s a list, pick the first one
             if isinstance(sales_person, list):
                 sales_person = sales_person[0] if sales_person else None
-
-            if sales_person:  # only if still valid
+            if sales_person:
                 customer_mapping = Table("tabCustomer Mapping")
                 sales_rep_info = Table("tabSales Rep Info")
-
                 customers_subquery = (
                     Query.from_(customer_mapping)
                     .join(sales_rep_info)
@@ -252,12 +278,11 @@ class PartyLedgerSummaryReport:
                 )
                 conditions.append(doctype.name.isin(customers_subquery))
         if self.filters.party_type == "Customer":
-            if self.filters.apple_id:  # Checked: Show customers with Apple ID
+            if self.filters.apple_id:
                 conditions.append(IfNull(doctype.apple_id, "") != "")
-            else:  # Unchecked: Show customers without Apple ID
+            else:
                 conditions.append(IfNull(doctype.apple_id, "") == "")
         return conditions
-
 
     def get_columns(self):
         columns = [
@@ -266,7 +291,10 @@ class PartyLedgerSummaryReport:
                 "fieldtype": "Link",
                 "fieldname": "party",
                 "options": self.filters.party_type,
-                "width": 200,
+                # -- NEW: hide customer link column when GST-grouped ---------
+                "width": 0 if self.group_by_gst else 200,
+                "hidden": 1 if self.group_by_gst else 0,
+                # -----------------------------------------------------------
             },
             {
                 "label": _("Apple ID"),
@@ -276,6 +304,23 @@ class PartyLedgerSummaryReport:
                 "hidden": 1,
             },
         ]
+
+        # -- NEW: GST No column shown first when grouped ---------------------
+        if self.group_by_gst:
+            columns.insert(0, {
+                "label": _("GST No (GSTIN)"),
+                "fieldtype": "Data",
+                "fieldname": "gstin",
+                "width": 180,
+            })
+            columns.insert(1, {
+                "label": _("Customer(s)"),
+                "fieldtype": "Data",
+                "fieldname": "party_names",
+                "width": 250,
+            })
+        # -------------------------------------------------------------------
+
         if self.party_naming_by == "Naming Series":
             columns.append(
                 {
@@ -283,6 +328,7 @@ class PartyLedgerSummaryReport:
                     "fieldtype": "Data",
                     "fieldname": "party_name",
                     "width": 150,
+                    "hidden": 1 if self.group_by_gst else 0,
                 }
             )
         credit_or_debit_note = (
@@ -435,6 +481,7 @@ class PartyLedgerSummaryReport:
         return columns
 
     def get_data(self):
+        """Original per-customer data builder (unchanged logic)."""
         company_currency = frappe.get_cached_value(
             "Company", self.filters.get("company"), "default_currency"
         )
@@ -506,15 +553,9 @@ class PartyLedgerSummaryReport:
             ):
                 cheque_data = self.cheque_counts.get(party, {})
                 row.cheque_received_count = cheque_data.get("cheque_received_count", 0)
-                row.cheque_received_amount = cheque_data.get(
-                    "cheque_received_amount", 0.0
-                )
-                row.cheque_deposited_count = cheque_data.get(
-                    "cheque_deposited_count", 0
-                )
-                row.cheque_deposited_amount = cheque_data.get(
-                    "cheque_deposited_amount", 0.0
-                )
+                row.cheque_received_amount = cheque_data.get("cheque_received_amount", 0.0)
+                row.cheque_deposited_count = cheque_data.get("cheque_deposited_count", 0)
+                row.cheque_deposited_amount = cheque_data.get("cheque_deposited_amount", 0.0)
                 total_party_adjustment = sum(
                     amount
                     for amount in self.party_adjustment_details.get(party, {}).values()
@@ -525,6 +566,150 @@ class PartyLedgerSummaryReport:
                     row["adj_" + scrub(account)] = adjustments.get(account, 0)
                 out.append(row)
         return out
+
+    # -- NEW: GST-wise consolidated data builder -----------------------------
+    def get_data_grouped_by_gst(self):
+        """
+        Builds one summary row per unique GSTIN.
+        Customers that share the same GST number are merged into a single row.
+        Customers without a GSTIN each get their own row (no grouping).
+        """
+        company_currency = frappe.get_cached_value(
+            "Company", self.filters.get("company"), "default_currency"
+        )
+        invoice_dr_or_cr = (
+            "debit" if self.filters.party_type == "Customer" else "credit"
+        )
+        reverse_dr_or_cr = (
+            "credit" if self.filters.party_type == "Customer" else "debit"
+        )
+
+        # Step 1 - build per-party data (same logic as get_data)
+        party_data = frappe._dict()
+        for gle in self.gl_entries:
+            party_details = self.party_details.get(gle.party)
+            party_name = party_details.get(f"{scrub(self.filters.party_type)}_name", "")
+            apple_id_status = 1 if party_details.get("apple_id") else 0
+            party_data.setdefault(
+                gle.party,
+                frappe._dict(
+                    {
+                        **party_details,
+                        "party_name": party_name,
+                        "opening_balance": 0,
+                        "invoiced_amount": 0,
+                        "paid_amount": 0,
+                        "return_amount": 0,
+                        "closing_balance": 0,
+                        "currency": company_currency,
+                        "payment_due": 0.0,
+                        "apple_id": apple_id_status,
+                        "first_invoiced_amount": self.get_first_invoiced_for_customer(
+                            gle.party, self.ranges[0]
+                        ) if self.ranges else 0.0,
+                        **{
+                            f"avg_outstanding_{idx + 1}": self.avg_outstanding.get(
+                                gle.party, {}
+                            ).get(idx, 0)
+                            for idx in range(len(self.ranges))
+                        },
+                    }
+                ),
+            )
+            amount = gle.get(invoice_dr_or_cr) - gle.get(reverse_dr_or_cr)
+            party_data[gle.party].closing_balance += amount
+            if gle.posting_date < self.filters.from_date or gle.is_opening == "Yes":
+                party_data[gle.party].opening_balance += amount
+            else:
+                if amount > 0:
+                    party_data[gle.party].invoiced_amount += amount
+                elif gle.voucher_no in self.return_invoices:
+                    party_data[gle.party].return_amount -= amount
+                else:
+                    party_data[gle.party].paid_amount -= amount
+
+        # Attach adjustments & cheque counts per party
+        for party, row in party_data.items():
+            cheque_data = self.cheque_counts.get(party, {})
+            row.cheque_received_count = cheque_data.get("cheque_received_count", 0)
+            row.cheque_received_amount = cheque_data.get("cheque_received_amount", 0.0)
+            row.cheque_deposited_count = cheque_data.get("cheque_deposited_count", 0)
+            row.cheque_deposited_amount = cheque_data.get("cheque_deposited_amount", 0.0)
+            total_party_adjustment = sum(
+                self.party_adjustment_details.get(party, {}).values()
+            )
+            row.paid_amount -= total_party_adjustment
+            adjustments = self.party_adjustment_details.get(party, {})
+            for account in self.party_adjustment_accounts:
+                row["adj_" + scrub(account)] = adjustments.get(account, 0)
+
+        # Step 2 - group by GSTIN
+        # gst_rows : { gstin -> merged_row }
+        gst_rows = frappe._dict()
+        no_gst_rows = []  # parties with blank GSTIN kept individual
+
+        numeric_fields = (
+            ["opening_balance", "invoiced_amount", "paid_amount", "return_amount",
+             "closing_balance", "payment_due", "first_invoiced_amount",
+             "cheque_received_count", "cheque_received_amount",
+             "cheque_deposited_count", "cheque_deposited_amount"]
+            + [f"avg_outstanding_{idx + 1}" for idx in range(len(self.ranges))]
+            + ["adj_" + scrub(a) for a in self.party_adjustment_accounts]
+        )
+
+        for party, row in party_data.items():
+            # Skip rows with zero activity
+            has_activity = (
+                row.opening_balance or row.invoiced_amount or row.paid_amount
+                or row.return_amount or row.closing_balance
+                or row.first_invoiced_amount
+                or any(row.get(f"avg_outstanding_{i + 1}", 0) for i in range(len(self.ranges)))
+            )
+            if not has_activity:
+                continue
+
+            gstin = self.party_to_gstin.get(party, "")
+
+            if not gstin:
+                # No GSTIN - keep as individual row
+                row["gstin"] = ""
+                row["party_names"] = row.get("party_name") or party
+                no_gst_rows.append(row)
+                continue
+
+            if gstin not in gst_rows:
+                # Initialise a blank merged row
+                merged = frappe._dict({
+                    "party": gstin,           # used as row key
+                    "gstin": gstin,
+                    "party_name": gstin,
+                    "party_names": "",        # will list customer names
+                    "currency": company_currency,
+                    "apple_id": "",
+                })
+                for f in numeric_fields:
+                    merged[f] = 0.0
+                merged["_customer_names"] = []
+                gst_rows[gstin] = merged
+
+            merged = gst_rows[gstin]
+            # Accumulate all numeric fields
+            for f in numeric_fields:
+                merged[f] = merged.get(f, 0) + row.get(f, 0)
+            # Collect customer names
+            cname = row.get("party_name") or party
+            if cname not in merged["_customer_names"]:
+                merged["_customer_names"].append(cname)
+
+        # Finalise merged rows
+        out = []
+        for gstin, merged in gst_rows.items():
+            merged["party_names"] = ", ".join(merged.pop("_customer_names", []))
+            out.append(merged)
+
+        out += no_gst_rows
+        return out
+    # -- END NEW -------------------------------------------------------------
 
     def get_gl_entries(self):
         gle = qb.DocType("GL Entry")

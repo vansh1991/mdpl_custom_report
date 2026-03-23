@@ -1,0 +1,10 @@
+
+{
+ "doctype": "Page",
+ "module": "Mdpl Custom Report",
+ "name": "patch-pr-single",
+ "page_name": "patch-pr-single",
+ "roles": [],
+ "standard": "Yes",
+ "title": "Patch Purchase Receipt Fields"
+}

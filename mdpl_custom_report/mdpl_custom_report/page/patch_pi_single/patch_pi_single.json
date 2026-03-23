@@ -1,0 +1,9 @@
+{
+ "doctype": "Page",
+ "module": "Mdpl Custom Report",
+ "name": "patch-pi-single",
+ "page_name": "patch-pi-single",
+ "roles": [],
+ "standard": "Yes",
+ "title": "Patch Purchase Invoice Fields"
+}

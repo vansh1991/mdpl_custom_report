@@ -1,0 +1,9 @@
+{
+ "doctype": "Page",
+ "module": "Mdpl Custom Report",
+ "name": "patch-pi-bulk",
+ "page_name": "patch-pi-bulk",
+ "roles": [],
+ "standard": "Yes",
+ "title": "Bulk Patch Purchase Invoice Fields"
+}

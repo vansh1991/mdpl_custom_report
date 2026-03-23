@@ -1,0 +1,8 @@
+{
+ "doctype": "Page",
+ "module": "Mdpl Custom Report",
+ "name": "bulk-patch-invoice-fields",
+ "page_name": "bulk-patch-invoice-fields",
+ "title": "Bulk Patch Invoice Fields",
+ "roles": []
+}

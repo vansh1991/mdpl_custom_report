@@ -4,6 +4,7 @@ app_publisher = "TechDude"
 app_description = "MDPL Custom Report"
 app_email = "techdudesoftwarelab@gmail.com"
 app_license = "mit"
+app_version = ">=15.0.0 <16.0.0"
 raven_function = [
     {
         "name": "Generate Sales Order Analysis",

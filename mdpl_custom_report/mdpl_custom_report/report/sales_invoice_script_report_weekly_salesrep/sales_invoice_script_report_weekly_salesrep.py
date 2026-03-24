@@ -89,7 +89,7 @@ def get_week_ranges(from_date, to_date):
     from_date = getdate(from_date)
     to_date = getdate(to_date)
 
-    weekday = from_date.weekday()  # Mon=0 … Sun=6
+    weekday = from_date.weekday()  # Mon=0 Sun=6
     if weekday != 0:
         from_date = add_days(from_date, -weekday)
 

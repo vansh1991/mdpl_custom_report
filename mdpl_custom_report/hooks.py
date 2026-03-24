@@ -1,6 +1,6 @@
 app_name = "mdpl_custom_report"
 app_title = "MDPL Custom Report"
-app_publisher = "TechDude"
+app_publisher = "TechDude CHE"
 app_description = "MDPL Custom Report"
 app_email = "techdudesoftwarelab@gmail.com"
 app_license = "mit"

@@ -1,7 +1,7 @@
 import frappe
 import json
 from frappe import _
-from frappe.utils import now
+from frappe.utils import now, getdate
 
 
 # ------------------------------------------------------------------
@@ -27,6 +27,7 @@ def get_pi_details(pi_name):
             "rate": row.rate,
             "amount": row.amount,
             "cost_center": row.cost_center or "",
+            "expense_account": row.expense_account or "",
         })
 
     return {
@@ -41,7 +42,7 @@ def get_pi_details(pi_name):
 
 
 @frappe.whitelist()
-def patch_pi_fields(pi_name, items):
+def patch_pi_fields(pi_name, items, new_posting_date=None):
     if not frappe.has_permission("Purchase Invoice", "write"):
         frappe.throw(_("Not permitted"), frappe.PermissionError)
 
@@ -53,14 +54,27 @@ def patch_pi_fields(pi_name, items):
     if doc.docstatus != 1:
         frappe.throw(_("Only submitted Purchase Invoices can be patched via this tool."))
 
-    changes = _apply_pi_patches(doc, items)
+    all_changes = []
 
-    if not changes:
+    # -- 1. Patch item-level fields (item_group, cost_center, expense_account) --
+    item_changes = _apply_pi_patches(doc, items)
+    all_changes.extend(item_changes)
+
+    # -- 2. Patch posting date + sync GL entries --
+    if new_posting_date:
+        date_changes = _apply_posting_date_patch(doc, new_posting_date)
+        all_changes.extend(date_changes)
+
+    if not all_changes:
         return {"status": "no_changes", "message": "No changes detected."}
 
-    _finalize("Purchase Invoice", pi_name, changes)
+    _finalize("Purchase Invoice", pi_name, all_changes)
 
-    return {"status": "success", "message": "Purchase Invoice updated successfully.", "changes": changes}
+    return {
+        "status": "success",
+        "message": "Purchase Invoice updated successfully.",
+        "changes": all_changes,
+    }
 
 
 # ------------------------------------------------------------------
@@ -125,6 +139,7 @@ def bulk_patch_pis(pi_names, item_group_map, cost_center_map):
 # ------------------------------------------------------------------
 
 def _apply_pi_patches(doc, items):
+    """Patch item_group, cost_center, and expense_account on PI items and linked GL entries."""
     changes = []
     item_map = {row.name: row for row in doc.items}
 
@@ -134,19 +149,120 @@ def _apply_pi_patches(doc, items):
             continue
         row = item_map[row_name]
 
+        # -- item_group --
         new_group = (incoming.get("item_group") or "").strip()
         if new_group and (row.item_group or "") != new_group:
-            frappe.db.set_value("Purchase Invoice Item", row_name, "item_group", new_group, update_modified=False)
-            changes.append("Item #{0} ({1}): item_group '{2}' -> '{3}'".format(
+            frappe.db.set_value(
+                "Purchase Invoice Item", row_name, "item_group", new_group,
+                update_modified=False
+            )
+            changes.append("Item #{0} ({1}): item_group '{2}' ? '{3}'".format(
                 row.idx, row.item_code, row.item_group or "", new_group))
 
+        # -- cost_center --
         new_cc = (incoming.get("cost_center") or "").strip()
         if new_cc and (row.cost_center or "") != new_cc:
-            frappe.db.set_value("Purchase Invoice Item", row_name, "cost_center", new_cc, update_modified=False)
-            changes.append("Item #{0} ({1}): cost_center '{2}' -> '{3}'".format(
+            frappe.db.set_value(
+                "Purchase Invoice Item", row_name, "cost_center", new_cc,
+                update_modified=False
+            )
+            # Sync cost_center on GL entries for this PI + account + old cost_center
+            _sync_gl_cost_center(doc.name, row.expense_account or "", row.cost_center or "", new_cc)
+            changes.append("Item #{0} ({1}): cost_center '{2}' ? '{3}'".format(
                 row.idx, row.item_code, row.cost_center or "", new_cc))
 
+        # -- expense_account --
+        new_account = (incoming.get("expense_account") or "").strip()
+        if new_account and (row.expense_account or "") != new_account:
+            # Validate account exists
+            if not frappe.db.exists("Account", new_account):
+                frappe.throw(_("Account '{0}' does not exist.").format(new_account))
+
+            old_account = row.expense_account or ""
+
+            # Update PI item row
+            frappe.db.set_value(
+                "Purchase Invoice Item", row_name, "expense_account", new_account,
+                update_modified=False
+            )
+
+            # Remap GL entries: old account ? new account for this voucher
+            _remap_gl_account(doc.name, old_account, new_account)
+
+            changes.append("Item #{0} ({1}): expense_account '{2}' ? '{3}'".format(
+                row.idx, row.item_code, old_account, new_account))
+
     return changes
+
+
+def _apply_posting_date_patch(doc, new_posting_date):
+    """Change posting_date on the PI and update all linked GL entries."""
+    changes = []
+
+    try:
+        new_date = getdate(new_posting_date)
+    except Exception:
+        frappe.throw(_("Invalid posting date: {0}").format(new_posting_date))
+
+    old_date = doc.posting_date
+    if str(old_date) == str(new_date):
+        return changes
+
+    # Update Purchase Invoice header
+    frappe.db.set_value(
+        "Purchase Invoice", doc.name,
+        {
+            "posting_date": new_date,
+            "due_date": new_date,       # recalc if needed; adjust to your business logic
+        },
+        update_modified=False,
+    )
+
+    # Update all GL Entries linked to this voucher
+    frappe.db.sql("""
+        UPDATE `tabGL Entry`
+        SET    posting_date = %(new_date)s
+        WHERE  voucher_type = 'Purchase Invoice'
+          AND  voucher_no   = %(voucher)s
+    """, {"new_date": new_date, "voucher": doc.name})
+
+    # Update Payment Ledger Entries (ERPNext v14+)
+    frappe.db.sql("""
+        UPDATE `tabPayment Ledger Entry`
+        SET    posting_date = %(new_date)s
+        WHERE  voucher_type = 'Purchase Invoice'
+          AND  voucher_no   = %(voucher)s
+    """, {"new_date": new_date, "voucher": doc.name})
+
+    changes.append("posting_date '{0}' ? '{1}' (GL entries updated)".format(old_date, new_date))
+    return changes
+
+
+def _sync_gl_cost_center(voucher_no, account, old_cc, new_cc):
+    """Update cost_center in GL Entry rows for a specific account on this voucher."""
+    if not account:
+        return
+    frappe.db.sql("""
+        UPDATE `tabGL Entry`
+        SET    cost_center = %(new_cc)s
+        WHERE  voucher_type = 'Purchase Invoice'
+          AND  voucher_no   = %(voucher)s
+          AND  account      = %(account)s
+          AND  (cost_center = %(old_cc)s OR cost_center IS NULL)
+    """, {"new_cc": new_cc, "voucher": voucher_no, "account": account, "old_cc": old_cc})
+
+
+def _remap_gl_account(voucher_no, old_account, new_account):
+    """Remap account in GL Entry rows for this voucher (old ? new)."""
+    if not old_account or not new_account or old_account == new_account:
+        return
+    frappe.db.sql("""
+        UPDATE `tabGL Entry`
+        SET    account = %(new_account)s
+        WHERE  voucher_type = 'Purchase Invoice'
+          AND  voucher_no   = %(voucher)s
+          AND  account      = %(old_account)s
+    """, {"new_account": new_account, "voucher": voucher_no, "old_account": old_account})
 
 
 def _finalize(doctype, doc_name, changes):

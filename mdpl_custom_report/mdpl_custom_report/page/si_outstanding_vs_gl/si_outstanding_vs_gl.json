@@ -1,0 +1,14 @@
+{
+ "creation": "2026-03-31 00:00:00.000000",
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-03-31 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Mdpl Custom Report",
+ "name": "si-outstanding-vs-gl",
+ "owner": "Administrator",
+ "page_name": "si-outstanding-vs-gl",
+ "roles": [],
+ "standard": "Yes",
+ "title": "SI Outstanding vs Customer Ledger"
+}

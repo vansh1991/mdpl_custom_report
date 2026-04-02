@@ -1,31 +1,21 @@
+# -*- coding: utf-8 -*-
 import frappe
 from frappe import _
 from frappe.utils import flt
+import json
 
 
 @frappe.whitelist()
 def get_si_outstanding_vs_gl(filters=None):
-    """
-    Compares Sales Invoice outstanding_amount against the actual GL balance
-    (Debit - Credit) for the Debtors/Receivable account per invoice.
-
-    Returns a list of rows with:
-      - si details
-      - outstanding_amount from the SI
-      - computed GL balance from GL Entry
-      - difference (mismatch indicator)
-      - likely cause classification
-    """
     if not frappe.has_permission("Sales Invoice", "report"):
         frappe.throw(_("Not permitted"), frappe.PermissionError)
 
     if isinstance(filters, str):
-        import json
         filters = json.loads(filters)
 
     filters = filters or {}
 
-    # ── 1. Fetch submitted Sales Invoices ──────────────────────────────────
+    # 1. Fetch submitted Sales Invoices
     si_conditions = ["si.docstatus = 1"]
     si_params = {}
 
@@ -63,11 +53,11 @@ def get_si_outstanding_vs_gl(filters=None):
     )
 
     if not invoices:
-        return []
+        return {"results": [], "summary": {"total": 0, "negative": 0, "mismatch": 0, "both": 0, "ok": 0}}
 
     si_names = [d.name for d in invoices]
 
-    # ── 2. Fetch GL balances per invoice (voucher-level) ──────────────────
+    # 2. Fetch GL balances per invoice (no date filter - full lifetime balance)
     gl_data = frappe.db.sql("""
         SELECT
             voucher_no,
@@ -86,8 +76,7 @@ def get_si_outstanding_vs_gl(filters=None):
 
     gl_map = {d.voucher_no: flt(d.gl_balance) for d in gl_data}
 
-    # ── 3. Fetch linked payment / credit note entries per SI ───────────────
-    # This tells us WHAT is linked (to help classify the cause)
+    # 3. Fetch linked payment entries
     linked = frappe.db.sql("""
         SELECT
             per.reference_name AS si_name,
@@ -104,7 +93,7 @@ def get_si_outstanding_vs_gl(filters=None):
         GROUP BY per.reference_name, per.reference_doctype, pe.payment_type
     """, {"si_names": si_names}, as_dict=True)
 
-    # Payment Reconciliation / Journal entries linked
+    # 4. Fetch linked Journal Entries
     je_linked = frappe.db.sql("""
         SELECT
             jea.reference_name AS si_name,
@@ -119,31 +108,16 @@ def get_si_outstanding_vs_gl(filters=None):
         GROUP BY jea.reference_name
     """, {"si_names": si_names}, as_dict=True)
 
-    # Credit notes linked
-    cn_linked = frappe.db.sql("""
-        SELECT
-            per.reference_name AS si_name,
-            COUNT(*) AS cn_count,
-            SUM(per.allocated_amount) AS cn_allocated
-        FROM `tabPayment Entry Reference` per
-        JOIN `tabPayment Entry` pe ON pe.name = per.parent
-        WHERE
-            per.reference_doctype = 'Sales Invoice'
-            AND per.reference_name IN %(si_names)s
-            AND pe.payment_type = 'Customer'
-        GROUP BY per.reference_name
-    """, {"si_names": si_names}, as_dict=True)
-
     # Build lookup maps
     payment_map = {}
     for d in linked:
         payment_map.setdefault(d.si_name, []).append(d)
-
     je_map = {d.si_name: d for d in je_linked}
-    cn_map = {d.si_name: d for d in cn_linked}
 
-    # ── 4. Build result rows ───────────────────────────────────────────────
+    # 5. Build result rows and summary
     results = []
+    summary = {"total": 0, "negative": 0, "mismatch": 0, "both": 0, "ok": 0}
+
     for si in invoices:
         outstanding = flt(si.outstanding_amount, 2)
         gl_balance  = flt(gl_map.get(si.name, 0), 2)
@@ -153,67 +127,71 @@ def get_si_outstanding_vs_gl(filters=None):
             outstanding, gl_balance, difference,
             payment_map.get(si.name, []),
             je_map.get(si.name),
-            cn_map.get(si.name),
             si.grand_total,
         )
 
         results.append({
-            "si_name":       si.name,
-            "customer":      si.customer,
-            "posting_date":  str(si.posting_date),
-            "grand_total":   flt(si.grand_total, 2),
-            "outstanding":   outstanding,
-            "gl_balance":    gl_balance,
-            "difference":    difference,
-            "status":        status,          # "negative" | "mismatch" | "both" | "ok"
-            "cause":         cause,
-            "debit_to":      si.debit_to,
-            "company":       si.company,
+            "si_name":      si.name,
+            "customer":     si.customer,
+            "posting_date": str(si.posting_date),
+            "grand_total":  flt(si.grand_total, 2),
+            "outstanding":  outstanding,
+            "gl_balance":   gl_balance,
+            "difference":   difference,
+            "status":       status,
+            "cause":        cause,
+            "debit_to":     si.debit_to,
+            "company":      si.company,
         })
 
-    return results
+        summary["total"] += 1
+        if status == "both":
+            summary["both"]     += 1
+            summary["negative"] += 1
+            summary["mismatch"] += 1
+        elif status == "negative":
+            summary["negative"] += 1
+        elif status == "mismatch":
+            summary["mismatch"] += 1
+        else:
+            summary["ok"] += 1
+
+    return {"results": results, "summary": summary}
 
 
-def _classify(outstanding, gl_balance, difference, payments, je, cn, grand_total):
-    """Return (cause_string, status_string) for an invoice."""
+def _classify(outstanding, gl_balance, difference, payments, je, grand_total):
     is_negative = outstanding < 0
-    is_mismatch = abs(difference) > 0.5   # tolerance for small rounding
+    is_mismatch = abs(difference) > 0.5
 
     if not is_negative and not is_mismatch:
         return "", "ok"
 
     causes = []
 
-    # ── Check for excess payment ──
     total_allocated = sum(flt(p.allocated) for p in payments)
     if total_allocated > flt(grand_total):
         causes.append("Excess payment applied (allocated {0} > invoice {1})".format(
             round(total_allocated, 2), round(grand_total, 2)))
 
-    # ── Check for Journal Entry offset ──
     if je:
-        causes.append("Journal Entry credit ({0} entries, total {1}) applied to this invoice".format(
+        causes.append("Journal Entry credit ({0} entries, total {1}) applied".format(
             je.cnt, round(flt(je.je_credit), 2)))
 
-    # ── Rounding / multi-currency ──
     if is_negative and abs(outstanding) < 1.0 and not causes:
         causes.append("Rounding difference (likely multi-currency reconciliation)")
 
-    # ── Duplicate payment entries ──
     if len(payments) > 1:
-        causes.append("Multiple payment entries linked ({0}) — possible duplicate allocation".format(
+        causes.append("Multiple payment entries linked ({0}) - possible duplicate allocation".format(
             len(payments)))
 
-    # ── Mismatch but outstanding is OK ──
-    if is_mismatch and not is_negative:
-        causes.append("GL balance differs from SI outstanding — unposted or cancelled entry may exist")
+    if is_mismatch and not is_negative and not causes:
+        causes.append("GL balance differs from SI outstanding - unposted or cancelled entry may exist")
 
-    # ── Default fallback ──
     if not causes:
         if is_negative:
-            causes.append("Outstanding is negative — check linked payments and credit notes")
+            causes.append("Outstanding is negative - check linked payments and credit notes")
         else:
-            causes.append("Ledger mismatch — GL balance does not match SI outstanding")
+            causes.append("Ledger mismatch - GL balance does not match SI outstanding")
 
     status = "both" if (is_negative and is_mismatch) else ("negative" if is_negative else "mismatch")
     return "; ".join(causes), status

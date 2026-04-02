@@ -23,56 +23,35 @@ var SIOutstandingReport = Class.extend({
 
         frappe.dom.set_style(
             ".siovgl-wrap { max-width: 1280px; margin: 20px auto; padding: 0 16px; }" +
-
-            // Filter bar
             ".siovgl-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 20px; }" +
             ".siovgl-filters .frappe-control { margin: 0; }" +
-
-            // Summary cards
             ".siovgl-cards { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 20px; }" +
-            ".siovgl-card { background: var(--card-bg); border: 1px solid var(--border-color);" +
-            "  border-radius: var(--border-radius-lg); padding: 16px 20px; }" +
-            ".siovgl-card .lbl { font-size: 11px; color: var(--text-muted);" +
-            "  text-transform: uppercase; letter-spacing:.05em; margin-bottom: 6px; }" +
+            ".siovgl-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-lg); padding: 16px 20px; }" +
+            ".siovgl-card .lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing:.05em; margin-bottom: 6px; }" +
             ".siovgl-card .val { font-size: 24px; font-weight: 600; color: var(--text-color); }" +
-            ".siovgl-card.red  .val { color: var(--red-500,#e74c3c); }" +
+            ".siovgl-card.red .val { color: var(--red-500,#e74c3c); }" +
             ".siovgl-card.amber .val { color: var(--yellow-500,#e67e22); }" +
             ".siovgl-card.green .val { color: var(--green-500,#27ae60); }" +
-
-            // Tab strip
             ".siovgl-tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); }" +
-            ".siovgl-tab { padding: 8px 18px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent;" +
-            "  color: var(--text-muted); background: none; border-top: none; border-left: none; border-right: none; }" +
+            ".siovgl-tab { padding: 8px 18px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-muted); background: none; border-top: none; border-left: none; border-right: none; }" +
             ".siovgl-tab.active { border-bottom-color: var(--primary); color: var(--primary); font-weight: 500; }" +
             ".siovgl-tab:hover { color: var(--text-color); }" +
-
-            // Table
+            ".siovgl-tab .tab-count { display: inline-block; margin-left: 5px; font-size: 10px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 10px; padding: 0 6px; color: var(--text-muted); }" +
+            ".siovgl-tab.active .tab-count { background: var(--primary); border-color: var(--primary); color: #fff; }" +
             ".siovgl-tbl-wrap { border: 1px solid var(--border-color); border-radius: var(--border-radius-lg); overflow-x: auto; }" +
             ".siovgl-table { width: 100%; border-collapse: collapse; min-width: 960px; }" +
-            ".siovgl-table th { padding: 8px 12px; font-size: 11px; font-weight: 600;" +
-            "  color: var(--text-muted); text-transform: uppercase; letter-spacing:.04em;" +
-            "  border-bottom: 1px solid var(--border-color); text-align: left;" +
-            "  background: var(--subtle-bg); white-space: nowrap; }" +
+            ".siovgl-table th { padding: 8px 12px; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing:.04em; border-bottom: 1px solid var(--border-color); text-align: left; background: var(--subtle-bg); white-space: nowrap; }" +
             ".siovgl-table th.num { text-align: right; }" +
-            ".siovgl-table td { padding: 9px 12px; border-bottom: 1px solid var(--border-color);" +
-            "  font-size: 13px; vertical-align: middle; }" +
+            ".siovgl-table td { padding: 9px 12px; border-bottom: 1px solid var(--border-color); font-size: 13px; vertical-align: middle; }" +
             ".siovgl-table tr:last-child td { border-bottom: none; }" +
             ".siovgl-table tr:hover td { background: var(--hover-bg); }" +
             ".siovgl-table td.num { text-align: right; font-variant-numeric: tabular-nums; }" +
-
-            // Badges
-            ".siovgl-badge { display: inline-block; font-size: 11px; padding: 2px 8px;" +
-            "  border-radius: 4px; font-weight: 500; }" +
+            ".siovgl-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; }" +
             ".siovgl-badge.neg  { background: var(--red-100,#fde8e8); color: var(--red-600,#c0392b); }" +
             ".siovgl-badge.warn { background: var(--yellow-100,#fef3cd); color: var(--yellow-700,#856404); }" +
             ".siovgl-badge.both { background: var(--red-100,#fde8e8); color: var(--red-700,#a93226); }" +
             ".siovgl-badge.ok   { background: var(--green-100,#d5f5e3); color: var(--green-700,#1e8449); }" +
-
-            // Cause text
-            ".siovgl-cause { font-size: 11px; color: var(--text-muted); max-width: 300px;" +
-            "  white-space: normal; line-height: 1.4; }" +
-
-            // Empty
+            ".siovgl-cause { font-size: 11px; color: var(--text-muted); max-width: 300px; white-space: normal; line-height: 1.4; }" +
             ".siovgl-empty { text-align: center; padding: 48px; color: var(--text-muted); font-size: 13px; }"
         );
 
@@ -84,6 +63,9 @@ var SIOutstandingReport = Class.extend({
         this._make_summary();
         this._make_tabs();
         this._make_table();
+        // Auto-run on page load
+        var me = this;
+        setTimeout(function () { me.load_data(); }, 300);
     },
 
     _make_filters: function () {
@@ -108,7 +90,7 @@ var SIOutstandingReport = Class.extend({
             df: { fieldtype: "Date", fieldname: "from_date", label: "From date" },
             parent: $f, render_input: true,
         });
-        this.from_ctrl.set_value(frappe.datetime.add_months(frappe.datetime.get_today(), -3));
+        this.from_ctrl.set_value(frappe.datetime.add_months(frappe.datetime.get_today(), -6));
         this.from_ctrl.refresh();
 
         this.to_ctrl = frappe.ui.form.make_control({
@@ -125,39 +107,57 @@ var SIOutstandingReport = Class.extend({
         $('<button class="btn btn-default btn-sm" style="height:32px">Export CSV</button>')
             .appendTo($f)
             .on("click", function () { me.export_csv(); });
+
+        // All-time toggle
+        var $all_wrap = $('<div style="display:flex;align-items:center;gap:6px;height:32px;padding-top:20px"></div>').appendTo($f);
+        this.$all_time = $('<input type="checkbox" id="siovgl-alltime" style="width:14px;height:14px;cursor:pointer">').appendTo($all_wrap);
+        $('<label for="siovgl-alltime" style="font-size:12px;cursor:pointer;white-space:nowrap;color:var(--text-muted)">All time</label>').appendTo($all_wrap);
+        this.$all_time.on("change", function () {
+            var checked = $(this).prop("checked");
+            me.from_ctrl.$input.prop("disabled", checked);
+            me.to_ctrl.$input.prop("disabled", checked);
+            if (checked) {
+                me.from_ctrl.set_value("");
+                me.to_ctrl.set_value("");
+            } else {
+                me.from_ctrl.set_value(frappe.datetime.add_months(frappe.datetime.get_today(), -6));
+                me.to_ctrl.set_value(frappe.datetime.get_today());
+            }
+        });
     },
 
     _make_summary: function () {
         this.$cards = $('<div class="siovgl-cards"></div>').appendTo(this.$wrap);
         this.$cards.html(
             this._card("Total Invoices Checked", "c-total", "") +
-            this._card("Negative Outstanding", "c-neg", "red") +
-            this._card("Ledger Mismatch", "c-mis", "amber") +
-            this._card("Clean Invoices", "c-ok", "green")
+            this._card("Negative Outstanding",   "c-neg",   "red") +
+            this._card("Ledger Mismatch",         "c-mis",   "amber") +
+            this._card("Clean Invoices",          "c-ok",    "green")
         );
     },
 
     _card: function (label, id, cls) {
-        return '<div class="siovgl-card ' + cls + '">' +
+        return '<div class="siovgl-card ' + (cls || "") + '">' +
                '<div class="lbl">' + label + '</div>' +
-               '<div class="val" id="' + id + '">—</div></div>';
+               '<div class="val" id="' + id + '">-</div></div>';
     },
 
     _make_tabs: function () {
         var me = this;
-        var $tabs = $('<div class="siovgl-tabs"></div>').appendTo(this.$wrap);
+        this.$tabs = $('<div class="siovgl-tabs"></div>').appendTo(this.$wrap);
         var defs = [
-            { key: "all",      label: "All" },
-            { key: "negative", label: "Negative Outstanding" },
-            { key: "mismatch", label: "Ledger Mismatch" },
-            { key: "both",     label: "Neg + Mismatch" },
-            { key: "ok",       label: "Clean" },
+            { key: "all",      label: "All",                  count_key: "total"    },
+            { key: "negative", label: "Negative Outstanding", count_key: "negative" },
+            { key: "mismatch", label: "Ledger Mismatch",      count_key: "mismatch" },
+            { key: "both",     label: "Neg + Mismatch",       count_key: "both"     },
+            { key: "ok",       label: "Clean",                count_key: "ok"       },
         ];
         defs.forEach(function (d) {
-            $('<button class="siovgl-tab ' + (d.key === "all" ? "active" : "") + '">' + d.label + '</button>')
-                .appendTo($tabs)
+            $('<button class="siovgl-tab ' + (d.key === "all" ? "active" : "") + '" data-key="' + d.key + '">' +
+              d.label + '<span class="tab-count" id="tc-' + d.key + '">0</span></button>')
+                .appendTo(me.$tabs)
                 .on("click", function () {
-                    $tabs.find(".siovgl-tab").removeClass("active");
+                    me.$tabs.find(".siovgl-tab").removeClass("active");
                     $(this).addClass("active");
                     me.current_filter = d.key;
                     me._render_table();
@@ -166,6 +166,7 @@ var SIOutstandingReport = Class.extend({
     },
 
     _make_table: function () {
+        this.$record_info = $('<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;" id="siovgl-rec-info"></div>').appendTo(this.$wrap);
         var $wrap = $('<div class="siovgl-tbl-wrap"></div>').appendTo(this.$wrap);
         $wrap.html(
             '<table class="siovgl-table">' +
@@ -175,7 +176,7 @@ var SIOutstandingReport = Class.extend({
             '<th>Posting Date</th>' +
             '<th class="num">Invoice Amount</th>' +
             '<th class="num">SI Outstanding</th>' +
-            '<th class="num">GL Balance (Dr−Cr)</th>' +
+            '<th class="num">GL Balance (Dr-Cr)</th>' +
             '<th class="num">Difference</th>' +
             '<th>Status</th>' +
             '<th>Likely Cause</th>' +
@@ -190,9 +191,9 @@ var SIOutstandingReport = Class.extend({
         var me = this;
         var filters = {
             customer:  me.customer_ctrl.get_value() || "",
-            company:   me.company_ctrl.get_value() || "",
-            from_date: me.from_ctrl.get_value() || "",
-            to_date:   me.to_ctrl.get_value() || "",
+            company:   me.company_ctrl.get_value()  || "",
+            from_date: me.from_ctrl.get_value()     || "",
+            to_date:   me.to_ctrl.get_value()       || "",
         };
 
         frappe.call({
@@ -201,34 +202,43 @@ var SIOutstandingReport = Class.extend({
             freeze: true,
             freeze_message: __("Fetching SI and GL data..."),
             callback: function (r) {
-                me.all_data = r.message || [];
-                me._update_summary();
+                if (!r.message) return;
+                me.all_data = r.message.results || [];
+                me._update_summary(r.message.summary || {});
                 me._render_table();
             },
         });
     },
 
-    _update_summary: function () {
-        var neg = 0, mis = 0, ok = 0;
-        (this.all_data || []).forEach(function (r) {
-            if (r.status === "both")     { neg++; mis++; }
-            else if (r.status === "negative") neg++;
-            else if (r.status === "mismatch") mis++;
-            else ok++;
-        });
-        $("#c-total").text(this.all_data.length);
-        $("#c-neg").text(neg);
-        $("#c-mis").text(mis);
-        $("#c-ok").text(ok);
+    _update_summary: function (summary) {
+        $("#c-total").text(summary.total    || 0);
+        $("#c-neg").text(summary.negative   || 0);
+        $("#c-mis").text(summary.mismatch   || 0);
+        $("#c-ok").text(summary.ok          || 0);
+
+        $("#tc-all").text(summary.total     || 0);
+        $("#tc-negative").text(summary.negative || 0);
+        $("#tc-mismatch").text(summary.mismatch || 0);
+        $("#tc-both").text(summary.both     || 0);
+        $("#tc-ok").text(summary.ok         || 0);
     },
 
     _render_table: function () {
         var me = this;
         var f = me.current_filter;
         var rows = (me.all_data || []).filter(function (r) {
-            if (f === "all") return true;
+            if (f === "all")      return true;
+            if (f === "negative") return r.status === "negative" || r.status === "both";
+            if (f === "mismatch") return r.status === "mismatch" || r.status === "both";
             return r.status === f;
         });
+
+        // Update record info
+        var total = me.all_data ? me.all_data.length : 0;
+        var label = f === "all"
+            ? "Showing all " + total + " invoices in selected date range"
+            : "Showing " + rows.length + " of " + total + " invoices in selected date range";
+        $("#siovgl-rec-info").text(label);
 
         var $tbody = $("#siovgl-tbody");
         if (!rows.length) {
@@ -237,31 +247,29 @@ var SIOutstandingReport = Class.extend({
         }
 
         var html = rows.map(function (r) {
-            var diff    = flt(r.difference, 2);
-            var outst   = flt(r.outstanding, 2);
-            var gl      = flt(r.gl_balance, 2);
-            var diff_color = diff !== 0 ? "color:var(--red-600,#c0392b);font-weight:600" : "";
-            var outst_color = outst < 0 ? "color:var(--red-600,#c0392b);font-weight:600" : "";
+            var diff       = flt(r.difference, 2);
+            var outst      = flt(r.outstanding, 2);
+            var gl         = flt(r.gl_balance, 2);
+            var diff_color  = diff !== 0 ? "color:var(--red-600,#c0392b);font-weight:600" : "";
+            var outst_color = outst < 0  ? "color:var(--red-600,#c0392b);font-weight:600" : "";
 
             var badge_cls = r.status === "both"     ? "both" :
                             r.status === "negative" ? "neg"  :
                             r.status === "mismatch" ? "warn" : "ok";
-            var badge_lbl = r.status === "both"     ? "Neg + Mismatch" :
+            var badge_lbl = r.status === "both"     ? "Neg + Mismatch"       :
                             r.status === "negative" ? "Negative Outstanding" :
                             r.status === "mismatch" ? "Ledger Mismatch"      : "Clean";
 
             var actions = "";
             if (r.status !== "ok") {
-                actions +=
-                    '<a class="btn btn-xs btn-default" style="margin-right:4px" ' +
-                    'href="/app/sales-invoice/' + encodeURIComponent(r.si_name) + '" target="_blank">Open SI</a>';
+                actions += '<a class="btn btn-xs btn-default" style="margin-right:4px" ' +
+                           'href="/app/sales-invoice/' + encodeURIComponent(r.si_name) + '" target="_blank">Open SI</a>';
                 if (r.status === "negative" || r.status === "both") {
-                    actions +=
-                        '<a class="btn btn-xs btn-default" style="margin-right:4px" ' +
-                        'href="/app/payment-reconciliation" target="_blank">Reconcile</a>';
+                    actions += '<a class="btn btn-xs btn-default" ' +
+                               'href="/app/payment-reconciliation" target="_blank">Reconcile</a>';
                 }
             } else {
-                actions = '<span style="color:var(--text-muted);font-size:11px">—</span>';
+                actions = '<span style="color:var(--text-muted);font-size:11px">-</span>';
             }
 
             return "<tr>" +
@@ -297,12 +305,11 @@ var SIOutstandingReport = Class.extend({
         });
         var csv = headers.join(",") + "\n" + rows.join("\n");
         var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-        var url  = URL.createObjectURL(blob);
         var a    = document.createElement("a");
-        a.href     = url;
+        a.href     = URL.createObjectURL(blob);
         a.download = "si_outstanding_vs_gl_" + frappe.datetime.get_today() + ".csv";
         a.click();
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(a.href);
     },
 });
 

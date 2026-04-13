@@ -7,7 +7,7 @@ frappe.pages["bulk-patch-invoice-fields"].on_page_load = function (wrapper) {
     new BulkPatchPage(page, wrapper);
 };
 
-var BULK_METHOD_BASE = "mdpl_custom_report.mdpl_custom_report.page.patch_invoice_bulk.patch_invoice_bulk.";
+var BULK_METHOD_BASE = "mdpl_custom_report.mdpl_custom_report.page.bulk_patch_invoice_fields.bulk_patch_invoice_fields.";
 
 var BulkPatchPage = Class.extend({
     init: function (page, wrapper) {
